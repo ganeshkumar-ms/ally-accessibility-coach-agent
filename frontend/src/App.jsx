@@ -616,7 +616,7 @@ export default function App() {
                         {msg.role === 'user' ? (
                           msg.content && <div className="userText">{msg.content}</div>
                         ) : msg.structured ? (
-                          <AllyResultCard data={msg.structured} />
+                          <AllyResultCard data={msg.structured} onSendPrompt={prompt => handleSend(prompt)} />
                         ) : (
                           <div className="chatProse">
                             {String(msg.content || '')

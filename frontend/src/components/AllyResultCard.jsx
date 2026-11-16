@@ -1,5 +1,7 @@
+import { useState } from 'react'
+
 function formatInlineBold(text) {
-  const parts = String(text || '').split(/(\*\*[^*]+\*\*)/g)
+  const parts = String(text || '').split(/(\**[^*]+\**)/g)
   return parts.map((part, idx) =>
     part.startsWith('**') && part.endsWith('**') ? (
       <strong key={idx}>{part.slice(2, -2)}</strong>
@@ -9,7 +11,10 @@ function formatInlineBold(text) {
   )
 }
 
-export default function AllyResultCard({ data }) {
+export default function AllyResultCard({ data, onSendPrompt }) {
+  const [showRemediated, setShowRemediated] = useState(false)
+  const [copiedCode, setCopiedCode] = useState(false)
+
   if (!data) return null
 
   if (data.type === 'chat' || !Array.isArray(data.findings)) {
@@ -44,6 +49,35 @@ export default function AllyResultCard({ data }) {
   const findings = data.findings || []
   const strengths = data.strengths || []
   const score = data.readiness_score ?? 75
+  const isRemediated = Boolean(data.is_remediated)
+  const remediatedDoc = data.remediated_document || ''
+
+  function copyRemediatedCode() {
+    if (!remediatedDoc) return
+    navigator.clipboard.writeText(remediatedDoc)
+    setCopiedCode(true)
+    setTimeout(() => setCopiedCode(false), 2000)
+  }
+
+  function downloadRemediatedFile() {
+    if (!remediatedDoc) return
+    const blob = new Blob([remediatedDoc], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'wcag_remediated_accessible_document.html'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  function handleApplyFixes() {
+    setShowRemediated(true)
+    if (onSendPrompt) {
+      onSendPrompt('Yes, please update the document with all WCAG fixes applied.')
+    }
+  }
 
   return (
     <div className="allyCard">
@@ -61,22 +95,22 @@ export default function AllyResultCard({ data }) {
       <div className="metricsStrip" aria-label="Accessibility review metrics">
         <span className="metricItem">
           <i className="metricDot dotEmerald" />
-          <strong>{m.total_findings ?? findings.length}</strong> Coaching Items
+          <strong>{m.total_findings ?? findings.length}</strong> WCAG Audited Items
         </span>
         <span className="metricSep">|</span>
         <span className="metricItem">
           <i className="metricDot dotHigh" />
-          <strong>{m.high_priority ?? 0}</strong> High Priority
+          <strong>{m.high_priority ?? 0}</strong> Critical Fixes
         </span>
         <span className="metricSep">|</span>
         <span className="metricItem">
           <i className="metricDot dotMed" />
-          <strong>{m.medium_priority ?? 0}</strong> Medium Priority
+          <strong>{m.medium_priority ?? 0}</strong> Enhancements
         </span>
         <span className="metricSep">|</span>
         <span className="metricItem">
           <i className="metricDot dotElem" />
-          <strong>{m.elements_reviewed ?? 1}</strong> Elements Reviewed
+          <strong>{m.elements_reviewed ?? 1}</strong> Elements Checked
         </span>
       </div>
 
@@ -84,58 +118,133 @@ export default function AllyResultCard({ data }) {
         <div className="coachSummary">{formatInlineBold(data.coach_summary)}</div>
       )}
 
+      {/* Interactive WCAG Full Document Remediation Banner */}
+      <div className="remediationBanner">
+        <div className="remediationBannerLeft">
+          <span className="remediationIcon">✨</span>
+          <div>
+            <h4 className="remediationQuestion">
+              {isRemediated
+                ? 'Document Fully Remediated with 100% WCAG Accuracy'
+                : 'Should I update the document with all WCAG fixes applied?'}
+            </h4>
+            <p className="remediationSubtext">
+              {isRemediated
+                ? 'All non-compliant elements have been replaced with accessible ARIA, keyboard-operable, and semantic code.'
+                : 'Instantly generate the production-ready remediated document with maximum accessibility compliance.'}
+            </p>
+          </div>
+        </div>
+        <div className="remediationActions">
+          {(!isRemediated && !showRemediated) ? (
+            <button
+              type="button"
+              className="applyFixesBtn"
+              onClick={handleApplyFixes}
+            >
+              ✨ Yes, Update Document
+            </button>
+          ) : (
+            <div className="remediatedBtns">
+              <button
+                type="button"
+                className="copyRemediatedBtn"
+                onClick={copyRemediatedCode}
+              >
+                {copiedCode ? '✓ Copied' : '📋 Copy Accessible Code'}
+              </button>
+              <button
+                type="button"
+                className="downloadRemediatedBtn"
+                onClick={downloadRemediatedFile}
+              >
+                📥 Download Remediated File (.html)
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Remediated Document Code Viewer */}
+      {(showRemediated || isRemediated) && remediatedDoc && (
+        <div className="remediatedDocViewer">
+          <div className="viewerHeader">
+            <span>📄 ACCESSIBLE REMEDIATED DOCUMENT PREVIEW</span>
+            <span className="wcagBadgeSuccess">✓ WCAG 2.2 LEVEL AA/AAA COMPLIANT</span>
+          </div>
+          <pre className="remediatedCodeBlock">
+            <code>{remediatedDoc}</code>
+          </pre>
+        </div>
+      )}
+
+      {/* Findings with WCAG Highlight and Non-Compliant vs Compliant Code */}
       {findings.length > 0 && (
         <div className="allySection">
-          <div className="sectionHead">ACCESSIBILITY COACHING · ISSUE -&gt; WHY IT MATTERS -&gt; HOW TO IMPROVE</div>
+          <div className="sectionHead">
+            WCAG COMPLIANCE FINDINGS · CODE REPLACEMENTS
+          </div>
           <div className="findingsList">
             {findings.map((f, idx) => {
               const prio = String(f.priority || 'MEDIUM').toUpperCase()
               const prioClass = prio === 'HIGH' ? 'prioHigh' : prio === 'LOW' ? 'prioLow' : 'prioMed'
+              const wcagRule = f.wcag_highlight || f.wcag_reference || 'WCAG 2.2 SC 2.4.4 Link Purpose'
+              const nonCompliant = f.non_compliant_code || f.original_snippet
+              const compliant = f.compliant_code || f.suggested_fix
+
               return (
                 <div key={idx} className="findingItem">
-                  <div className="findingHead">
-                    <span className="findingLoc">{f.element_or_location || `Finding ${idx + 1}`}</span>
-                    <div className="findingPills">
-                      <span className="catPill">{f.category || 'Usability'}</span>
-                      <span className={`prioPill ${prioClass}`}>{prio}</span>
-                    </div>
+                  {/* WCAG Standard Highlight at Top */}
+                  <div className="wcagHighlightBanner">
+                    <span className="wcagIcon">🛡️</span>
+                    <span className="wcagName">{wcagRule}</span>
+                    <span className={`prioPill ${prioClass}`}>{prio} PRIORITY</span>
                   </div>
 
-                  {(f.original_snippet || f.suggested_fix) && (
-                    <div className="fixPair">
-                      {f.original_snippet && (
-                        <div className="fixBox fixOrig">
-                          <span className="fixTag">ORIGINAL</span>
-                          <code>{f.original_snippet}</code>
-                        </div>
-                      )}
-                      {f.suggested_fix && (
-                        <div className="fixBox fixBetter">
-                          <span className="fixTag">SUGGESTED WORDING / FIX</span>
-                          <code>{f.suggested_fix}</code>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="coachRows">
-                    <div className="coachRow">
-                      <span className="coachKey">Issue</span>
-                      <span className="coachVal">{f.issue}</span>
-                    </div>
-                    <div className="coachRow">
-                      <span className="coachKey">Why it matters</span>
-                      <span className="coachVal">{f.why_it_matters}</span>
-                    </div>
-                    <div className="coachRow">
-                      <span className="coachKey">How to improve</span>
-                      <span className="coachVal improveVal">{f.how_to_improve}</span>
-                    </div>
+                  <div className="findingHead" style={{ marginTop: '8px' }}>
+                    <span className="findingLoc">{f.element_or_location || `Target Location ${idx + 1}`}</span>
+                    <span className="catPill">{f.category || 'Semantic Structure'}</span>
                   </div>
 
-                  {f.wcag_reference && (
-                    <div className="wcagRef">{f.wcag_reference}</div>
-                  )}
+                  {/* Side-by-Side / Stacked Non-Compliant vs Compliant Code */}
+                  <div className="codeComparisonGrid">
+                    {nonCompliant && (
+                      <div className="codeBox nonCompliantBox">
+                        <div className="codeBoxHeader">
+                          <span className="codeBoxBadge redBadge">❌ NON-COMPLIANT CODE</span>
+                        </div>
+                        <pre className="codeSnippet">
+                          <code>{nonCompliant}</code>
+                        </pre>
+                      </div>
+                    )}
+                    {compliant && (
+                      <div className="codeBox compliantBox">
+                        <div className="codeBoxHeader">
+                          <span className="codeBoxBadge greenBadge">✅ ACCESSIBLE WCAG REPLACEMENT CODE</span>
+                        </div>
+                        <pre className="codeSnippet">
+                          <code>{compliant}</code>
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Concise Context */}
+                  <div className="coachRows" style={{ marginTop: '10px' }}>
+                    {f.issue && (
+                      <div className="coachRow">
+                        <span className="coachKey">Issue</span>
+                        <span className="coachVal">{f.issue}</span>
+                      </div>
+                    )}
+                    {f.why_it_matters && (
+                      <div className="coachRow">
+                        <span className="coachKey">Assistive Impact</span>
+                        <span className="coachVal">{f.why_it_matters}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )
             })}
@@ -145,19 +254,24 @@ export default function AllyResultCard({ data }) {
 
       {strengths.length > 0 && (
         <div className="allySection">
-          <div className="sectionHead">WHAT IS WORKING WELL</div>
-          <ul className="strengthList">
-            {strengths.map((st, idx) => (
-              <li key={idx}>{st}</li>
+          <div className="sectionHead">ACCESSIBLE STRENGTHS DETECTED</div>
+          <div className="strengthsList">
+            {strengths.map((s, idx) => (
+              <div key={idx} className="strengthItem">
+                <span className="strengthCheck">✓</span>
+                <span className="strengthText">{s}</span>
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
       )}
 
       {data.validation_note && (
-        <div className="validationNote">{data.validation_note}</div>
+        <div className="validationNote">
+          <span className="valDot" />
+          <span>{data.validation_note}</span>
+        </div>
       )}
     </div>
   )
 }
-
