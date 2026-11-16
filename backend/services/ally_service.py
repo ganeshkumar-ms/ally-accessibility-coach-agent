@@ -1,3 +1,5 @@
+import datetime
+import uuid
 import json
 import os
 import random
@@ -399,11 +401,18 @@ def review_or_chat(
 
     msg_guard = guardrail_service.inspect_and_sanitize(clean_msg, is_document=False)
     if msg_guard.get('blocked'):
+        trace_code = f"ALY-{datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
         return {
             'type': 'chat',
             'message': msg_guard.get('message', 'Request blocked by Enterprise BFSI Security Guardrails.'),
-            'guardrails': msg_guard.get('guardrails'),
+            'guardrail_status': 'BLOCKED',
+            'guardrails': msg_guard.get('guardrails', {"status": "BLOCKED"}),
             'rejected': True,
+            'trace_id': trace_code,
+            'data': {
+                'trace_id': trace_code,
+                'guardrails': msg_guard.get('guardrails', {"status": "BLOCKED"})
+            }
         }
     clean_msg = msg_guard.get('sanitized_text', clean_msg)
     if has_doc:
@@ -483,7 +492,11 @@ def review_or_chat(
             parsed = json.loads(_strip_json_fences(raw_output))
             if isinstance(parsed, dict):
                 if parsed.get('type') == 'accessibility_review' or 'findings' in parsed:
-                    return _normalize_review(parsed, fallback_scope)
+                    res = _normalize_review(parsed, fallback_scope)
+                    trace_code = f"ALY-{datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+                    res['trace_id'] = trace_code
+                    res['guardrails'] = {"status": "PASSED", "pci_dss_sanitized": True}
+                    return res
                 if parsed.get('type') == 'chat' and parsed.get('message'):
                     return {'type': 'chat', 'message': str(parsed['message']).strip()}
         except Exception:

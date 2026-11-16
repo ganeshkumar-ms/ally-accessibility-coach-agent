@@ -310,11 +310,14 @@ export default function App() {
               : m.content || '',
       }))
 
-      const res = await sendAllyReview({
-        message: text,
-        history: historyPayload,
-        filePayload,
-      })
+      const [res] = await Promise.all([
+        sendAllyReview({
+          message: text,
+          history: historyPayload,
+          filePayload,
+        }),
+        new Promise(res => setTimeout(res, 900))
+      ])
 
       const enrichedDoc = localDocMeta
         ? {
@@ -616,7 +619,7 @@ export default function App() {
                         {msg.role === 'user' ? (
                           msg.content && <div className="userText">{msg.content}</div>
                         ) : msg.structured ? (
-                          <AllyResultCard data={msg.structured} onSendPrompt={prompt => handleSend(prompt)} />
+                          <AllyResultCard data={msg.structured} guardrails={msg.structured?.guardrails || msg.guardrails} onSendPrompt={prompt => handleSend(prompt)} />
                         ) : (
                           <div className="chatProse">
                             {String(msg.content || '')
