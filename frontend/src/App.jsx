@@ -603,9 +603,13 @@ export default function App() {
                     ) : (
                       <button
                         type="button"
-                        className="titleBtn"
-                        title="Click to rename"
-                        onClick={() => setEditingTitle(true)}
+                        id="title"
+                        className="titleEditable"
+                        title="Click to rename conversation"
+                        onClick={() => {
+                          setTitleDraft(currentSession ? currentSession.title : draftTitle)
+                          setEditingTitle(true)
+                        }}
                       >
                         <span className="titleText">
                           {currentSession ? currentSession.title : draftTitle}
@@ -620,17 +624,6 @@ export default function App() {
                   </div>
 
                   <div className="mobileActions">
-                    <button
-                      className="ghost"
-                      type="button"
-                      onClick={() => setShowPathModal(true)}
-                      title="Scan Folder or Repo Path"
-                    >
-                      <svg className="icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                      </svg>
-                      <span style={{ marginLeft: '6px' }}>SCAN REPO</span>
-                    </button>
                     <button
                       className="mobileMenu"
                       type="button"

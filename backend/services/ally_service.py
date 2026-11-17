@@ -511,7 +511,7 @@ def _invoke_bedrock(client, model_id: str, messages: list) -> str:
         modelId=model_id,
         system=[{'text': ALLY_SYSTEM_PROMPT}],
         messages=messages,
-        inferenceConfig={'maxTokens': 2400, 'temperature': 0.15},
+        inferenceConfig={'maxTokens': 1400, 'temperature': 0.1},
     )
     parts = response.get('output', {}).get('message', {}).get('content', [])
     return ''.join(p.get('text', '') for p in parts if isinstance(p, dict))
@@ -608,7 +608,7 @@ def review_or_chat(
         source_label = f'FETCHED WEBPAGE ({source_url})' if source_url else f"UPLOADED CONTENT ({file_name or 'document'})"
         combined_user_text = (
             f"User instruction: {clean_msg or 'Please perform an accessibility coaching review of this content and suggest actionable improvements.'}\n\n"
-            f"=== {source_label} ===\n{document_text[:28000]}"
+            f"=== {source_label} ===\n{document_text[:14000]}"
         )
     else:
         combined_user_text = clean_msg
