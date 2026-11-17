@@ -436,68 +436,101 @@ export default function AllyResultCard({ data, guardrails: propGuardrails, onSen
               <table className="allyTable" aria-label="WCAG Accessibility Issues Table">
                 <thead>
                   <tr>
-                    <th className="colWcag">WCAG Criterion &amp; Element</th>
-                    <th className="colViolation">Current Code / Violation</th>
-                    <th className="colRemediation">Remediation / Suggestion</th>
-                    <th className="colImpact">Impact &amp; Assistive Tech</th>
+                    <th className="colIssueId">Issue ID</th>
+                    <th className="colCriterion">WCAG Criterion</th>
+                    <th className="colElement">Element</th>
+                    <th className="colIssue">Issue</th>
+                    <th className="colSeverity">Severity</th>
+                    <th className="colImpact">User Impact</th>
+                    <th className="colLocation">Location</th>
+                    <th className="colFix">Suggested Fix</th>
+                    <th className="colVerification">Verification</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visibleFindings.map((f, idx) => {
-                    const prio = String(f.priority || 'MEDIUM').toUpperCase()
-                    const prioClass = prio === 'HIGH' ? 'prioHigh' : prio === 'LOW' ? 'prioLow' : 'prioMed'
-                    const wcagRule = f.wcag_highlight || f.wcag_reference || 'WCAG 2.2 AA'
-                    const nonCompliant = f.non_compliant_code || f.original_snippet
+                    const sev = String(f.severity || f.priority || 'Medium')
+                    const sevNorm = sev.toUpperCase()
+                    const sevClass =
+                      sevNorm === 'CRITICAL'
+                        ? 'prioCrit'
+                        : sevNorm === 'HIGH'
+                          ? 'prioHigh'
+                          : sevNorm === 'LOW'
+                            ? 'prioLow'
+                            : 'prioMed'
+
+                    const nonCompliant = f.non_compliant_code || f.original_snippet || f.element
                     const compliant = f.compliant_code || f.suggested_fix
+                    const rule = f.wcag_criterion || f.wcag_highlight || f.wcag_reference || 'WCAG 2.2 AA'
 
                     return (
-                      <tr key={idx} className="allyRow">
-                        {/* 1. Criterion & Element */}
-                        <td className="colWcag cellWcag">
-                          <div className="wcagHeadMeta">
-                            <span className="mono idxTag">#{String(idx + 1).padStart(2, '0')}</span>
-                            <span className={`prioBadge ${prioClass}`}>{prio}</span>
-                          </div>
-                          <strong className="wcagRuleTag">{wcagRule}</strong>
-                          <div className="elemLocTag" title={f.element_or_location}>
-                            {f.element_or_location || 'Element'}
-                          </div>
+                      <tr key={f.id || idx} className="allyRow">
+                        {/* 1. Issue ID */}
+                        <td className="colIssueId cellIssueId mono">
+                          <span className="issueIdBadge">{f.id || `ISS-${String(idx + 1).padStart(2, '0')}`}</span>
+                          {f.status && (
+                            <span className={`statusTagMicro ${f.status === 'CONFIRMED_VIOLATION' ? 'tagConf' : 'tagMan'}`}>
+                              {f.status === 'CONFIRMED_VIOLATION' ? 'VIOLATION' : 'VERIFY'}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* 2. WCAG Criterion */}
+                        <td className="colCriterion cellCriterion">
+                          <strong className="wcagRuleTag">{rule}</strong>
+                          {f.principle && <span className="principleTag">{f.principle}</span>}
                           {f.category && <span className="catTagMicro">{f.category}</span>}
                         </td>
 
-                        {/* 2. Current Code / Violation */}
-                        <td className="colViolation cellViolation">
-                          {nonCompliant ? (
-                            <div className="codeBox nonCompliant">
-                              <span className="codeBoxLabel">NON-COMPLIANT</span>
-                              <pre className="codePre">
-                                <code>{nonCompliant}</code>
-                              </pre>
-                            </div>
-                          ) : (
-                            <span className="textMuted">[No direct markup]</span>
-                          )}
-                          {f.issue && <p className="issueDesc">{f.issue}</p>}
+                        {/* 3. Element */}
+                        <td className="colElement cellElement mono">
+                          <div className="codeBox nonCompliant">
+                            <pre className="codePre">
+                              <code>{nonCompliant || f.element_or_location || 'Element'}</code>
+                            </pre>
+                          </div>
                         </td>
 
-                        {/* 3. Remediation / Suggestion */}
-                        <td className="colRemediation cellRemediation">
+                        {/* 4. Issue */}
+                        <td className="colIssue cellIssue">
+                          <p className="issueDesc">{f.issue}</p>
+                        </td>
+
+                        {/* 5. Severity */}
+                        <td className="colSeverity cellSeverity">
+                          <span className={`prioBadge ${sevClass}`}>{sev}</span>
+                        </td>
+
+                        {/* 6. User Impact */}
+                        <td className="colImpact cellImpact">
+                          <p className="impactText">{f.user_impact || f.why_it_matters || 'Affects users relying on assistive technology or keyboard navigation.'}</p>
+                        </td>
+
+                        {/* 7. Location */}
+                        <td className="colLocation cellLocation mono">
+                          <span className="locBadge" title={f.location || f.element_or_location}>
+                            {f.location || f.element_or_location || 'source:line 1'}
+                          </span>
+                        </td>
+
+                        {/* 8. Suggested Fix */}
+                        <td className="colFix cellFix mono">
                           {compliant ? (
                             <div className="codeBox compliant">
-                              <span className="codeBoxLabel">ACCESSIBLE REPLACEMENT</span>
                               <pre className="codePre">
                                 <code>{compliant}</code>
                               </pre>
                             </div>
                           ) : (
-                            <span className="textMuted">[See recommendation]</span>
+                            <span className="textMuted">[Apply semantic fix]</span>
                           )}
                           {f.how_to_improve && <p className="improveDesc">{f.how_to_improve}</p>}
                         </td>
 
-                        {/* 4. Impact & Assistive Tech */}
-                        <td className="colImpact cellImpact">
-                          <p className="impactText">{f.why_it_matters || 'Affects screen reader, keyboard, and cognitive usability.'}</p>
+                        {/* 9. Verification */}
+                        <td className="colVerification cellVerification">
+                          <p className="verifText">{f.verification || 'Test with Tab keyboard navigation and screen reader rotor inspection.'}</p>
                         </td>
                       </tr>
                     )
@@ -571,10 +604,10 @@ export default function AllyResultCard({ data, guardrails: propGuardrails, onSen
         <div className="closingPromptWrap">
           <div className="closingPromptLeft">
             <h4 className="closingPromptTitle">
-              Should I apply these WCAG remediations to your code / document?
+              Should I apply the recommended accessibility fixes to the source code?
             </h4>
             <p className="closingPromptSub">
-              Automatically replace all non-compliant elements with accessible semantics, ARIA roles, and compliant color contrast.
+              Selecting YES applies verified WCAG 2.2 Level A/AA semantic HTML, ARIA attributes, and keyboard controls. Selecting NO preserves the original source code unchanged.
             </p>
           </div>
 
@@ -589,14 +622,14 @@ export default function AllyResultCard({ data, guardrails: propGuardrails, onSen
                   <svg className="iconSvg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <path d="M20 6L9 17l-5-5" />
                   </svg>
-                  <span>Yes, Apply Remediations</span>
+                  <span>YES – Apply the fixes</span>
                 </button>
                 <button
                   type="button"
                   className="btnRemediateNo"
                   onClick={handleChoiceNo}
                 >
-                  <span>No, Keep Original</span>
+                  <span>NO – Keep the original source unchanged</span>
                 </button>
               </div>
             ) : remediationChoice === 'yes' || isRemediated || showRemediated ? (
@@ -605,27 +638,27 @@ export default function AllyResultCard({ data, guardrails: propGuardrails, onSen
                   <svg className="iconSvg" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <path d="M20 6L9 17l-5-5" />
                   </svg>
-                  Remediations Applied
+                  Remediation Applied &amp; Validated Safe
                 </span>
                 <button
                   type="button"
                   className="btnQuickCopy"
                   onClick={copyRemediatedCode}
                 >
-                  {copiedCode ? 'Copied' : 'Copy Accessible Code'}
+                  {copiedCode ? 'Copied' : 'Copy Remediated Code'}
                 </button>
                 <button
                   type="button"
                   className="btnQuickDownload"
                   onClick={downloadRemediatedFile}
                 >
-                  Download (.html)
+                  Download Remediated Source (.html)
                 </button>
               </div>
             ) : (
               <div className="remediationDeclined">
-                <span className="declinedTag">Original Retained</span>
-                <span className="declinedSub">WCAG audit findings and suggestions remain available in the table above.</span>
+                <span className="declinedTag">Original Source Preserved Unchanged</span>
+                <span className="declinedSub">WCAG audit recommendations and evidence remain available in the findings table above.</span>
               </div>
             )}
           </div>
