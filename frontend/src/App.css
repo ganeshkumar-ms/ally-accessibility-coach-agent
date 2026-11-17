@@ -2232,39 +2232,33 @@ html, body {
   border: 1px solid rgba(7, 140, 255, 0.22);
 }
 .prioFilterBtn {
-  background: transparent;
-  border: none;
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 750;
-  color: #94a3b8;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 6px !important;
+  padding: 4px 10px !important;
+  font-size: 11px !important;
+  font-weight: 750 !important;
+  color: #94a3b8 !important;
   cursor: pointer;
   transition: all 0.15s ease;
+  outline: none !important;
+  box-shadow: none !important;
 }
 .prioFilterBtn:hover {
-  color: #ffffff;
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid transparent !important;
 }
 .prioFilterBtn:focus,
 .prioFilterBtn:focus-visible {
   outline: none !important;
-}
-.prioFilterBtn.high {
-  background: transparent !important;
-  border: none !important;
-  color: #94a3b8 !important;
-  outline: none !important;
+  border: 1px solid transparent !important;
   box-shadow: none !important;
 }
-.prioFilterBtn.high:hover {
-  color: #ffffff !important;
-  background: rgba(255, 255, 255, 0.05) !important;
-  border: none !important;
-  outline: none !important;
-}
 .prioFilterBtn.active {
-  background: rgba(7, 140, 255, 0.28);
-  color: #38bdf8;
+  background: rgba(7, 140, 255, 0.28) !important;
+  color: #38bdf8 !important;
+  border: 1px solid rgba(7, 140, 255, 0.45) !important;
 }
 .prioFilterBtn.active.high {
   background: rgba(239, 68, 68, 0.25) !important;
@@ -2274,12 +2268,14 @@ html, body {
   outline: none !important;
 }
 .prioFilterBtn.active.medium {
-  background: rgba(250, 204, 21, 0.25);
-  color: #facc15;
+  background: rgba(250, 204, 21, 0.25) !important;
+  color: #facc15 !important;
+  border: 1px solid rgba(250, 204, 21, 0.6) !important;
 }
 .prioFilterBtn.active.low {
-  background: rgba(96, 165, 250, 0.25);
-  color: #93c5fd;
+  background: rgba(96, 165, 250, 0.25) !important;
+  color: #93c5fd !important;
+  border: 1px solid rgba(96, 165, 250, 0.6) !important;
 }
 
 .allySelect {

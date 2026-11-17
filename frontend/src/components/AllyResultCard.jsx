@@ -396,7 +396,7 @@ export default function AllyResultCard({ data, guardrails: propGuardrails, onSen
                 <button
                   key={lvl}
                   type="button"
-                  className={`prioFilterBtn ${prioFilter === lvl ? 'active' : ''} ${lvl.toLowerCase()}`}
+                  className={`prioFilterBtn ${prioFilter === lvl ? `active ${lvl.toLowerCase()}` : ''}`}
                   onClick={() => setPrioFilter(lvl)}
                 >
                   {lvl}
