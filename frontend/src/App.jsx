@@ -1,35 +1,53 @@
-import React, { Component, useEffect, useMemo, useRef, useState } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import AllySidebar from './components/AllySidebar'
 import AllyResultCard from './components/AllyResultCard'
 import DocumentViewer from './components/DocumentViewer'
-import { prepareFilePayload, sendAllyReview } from './services/api'
+import {
+  prepareFilePayload,
+  fileToBase64,
+  sendAllyReview,
+  scanPath,
+  fetchDocumentPreview,
+} from './services/api'
+import './App.css'
 
-const STORAGE_KEY = 'ally_sessions_v1'
-const GREETING_RE = /^\s*(?:hi+|hello+|helo+|hey+|hola+|namaste|ji+|yo+|sup|thanks?|thank\s+you|ok(?:ay)?|cool|nice|great)\s*[!?.👋🙏]*\s*$/i
+const STORAGE_KEY = 'ally_accessibility_coach_sessions_v1'
 
-class ErrorBoundary extends Component {
-  constructor(props) {
-    super(props)
-    this.state = { hasError: false }
+function formatSize(bytes) {
+  if (!bytes && bytes !== 0) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function deriveTitle(text, doc) {
+  if (doc?.name) {
+    const clean = doc.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim()
+    return clean ? clean.slice(0, 32) : 'Accessibility Review'
   }
-  static getDerivedStateFromError() {
-    return { hasError: true }
+  const clean = String(text || '')
+    .replace(/^https?:\/\//i, '')
+    .replace(/^(please\s+|can\s+you\s+|check\s+|review\s+|audit\s+)/i, '')
+    .trim()
+  if (!clean) return 'New conversation'
+  const firstLine = clean.split('\n')[0].slice(0, 32).trim()
+  return firstLine.length < clean.length ? `${firstLine}…` : firstLine
+}
+
+function getSmartPreview(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) return 'No messages yet'
+  const lastAi = [...messages].reverse().find(m => m.role === 'assistant')
+  if (lastAi) {
+    if (lastAi.structured?.coach_summary) return lastAi.structured.coach_summary
+    if (lastAi.content) return String(lastAi.content).slice(0, 140)
   }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="errScreen">
-          <h2>ALLY recovered from an unexpected display error.</h2>
-          <button type="button" onClick={() => window.location.reload()}>Reload ALLY</button>
-        </div>
-      )
-    }
-    return this.props.children
-  }
+  const firstUser = messages.find(m => m.role === 'user')
+  if (firstUser?.content) return String(firstUser.content).slice(0, 140)
+  return 'Accessibility review session'
 }
 
 function formatInlineBold(text) {
-  const parts = String(text || '').split(/(\*\*[^*]+\*\*)/g)
+  const parts = String(text || '').split(/(\**[^*]+\**)/g)
   return parts.map((part, idx) =>
     part.startsWith('**') && part.endsWith('**') ? (
       <strong key={idx}>{part.slice(2, -2)}</strong>
@@ -39,64 +57,11 @@ function formatInlineBold(text) {
   )
 }
 
-function cleanFileTitle(name) {
-  return String(name || 'Document')
-    .replace(/\.[^/.]+$/, '')
-    .replace(/[-_]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function deriveTitle(rawPrompt, fileMeta) {
-  if (fileMeta?.name) {
-    return `${cleanFileTitle(fileMeta.name)} Accessibility`.slice(0, 56)
-  }
-  const t = String(rawPrompt || '').trim()
-  if (!t || GREETING_RE.test(t)) return 'New conversation'
-  const stripped = t
-    .replace(/^(?:can\s+you\s+please|could\s+you\s+please|please\s+can\s+you|kindly|please|help\s+me|check|review|audit|improve)\s+/i, '')
-    .trim()
-  const urlMatch = (stripped || t).match(/https?:\/\/(?:www\.)?([^\s/]+)([^\s]*)/i)
-  if (urlMatch && !t.includes('<')) {
-    const host = urlMatch[1]
-    return `${host} Accessibility`.slice(0, 56)
-  }
-  const chosen = stripped || t
-  return chosen.length > 48 ? `${chosen.slice(0, 45).trim()}...` : chosen
-}
-
-function getSmartPreview(messages) {
-  if (!Array.isArray(messages) || messages.length === 0) return 'No messages yet'
-  const lastAi = [...messages].reverse().find(m => m.role === 'assistant')
-  if (lastAi?.structured) {
-    return (
-      lastAi.structured.coach_summary ||
-      lastAi.structured.review_title ||
-      lastAi.structured.findings?.[0]?.issue ||
-      'Accessibility review complete'
-    )
-  }
-  if (lastAi?.content && !GREETING_RE.test(lastAi.content)) {
-    return lastAi.content.slice(0, 120)
-  }
-  const firstDoc = messages.find(m => m.doc?.name)
-  if (firstDoc) return firstDoc.doc.name
-  const nonGreeting = messages.find(m => m.role === 'user' && m.content && !GREETING_RE.test(m.content))
-  return nonGreeting ? nonGreeting.content.slice(0, 120) : 'Accessibility coaching conversation'
-}
-
-function formatSize(bytes) {
-  if (!bytes) return ''
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
 function loadSessions() {
   try {
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
     if (!Array.isArray(raw)) return []
-    return raw
+    const clean = raw
       .filter(s => s && s.id && Array.isArray(s.messages) && s.messages.length > 0)
       .map(s => {
         if (!s.titleLocked) {
@@ -114,6 +79,8 @@ function loadSessions() {
         }
         return s
       })
+    // Strictly sort by updatedAt descending so newest is always 1st
+    return clean.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
   } catch {
     return []
   }
@@ -151,12 +118,18 @@ export default function App() {
   const [view, setView] = useState('home')
   const [homeInput, setHomeInput] = useState('')
   const [chatInput, setChatInput] = useState('')
-  const [attachedFile, setAttachedFile] = useState(null)
+  const [attachedFiles, setAttachedFiles] = useState([]) // Array of files
   const [isLoading, setIsLoading] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   const [viewerDoc, setViewerDoc] = useState(null)
+
+  // Repo / Folder path scanner state
+  const [showPathModal, setShowPathModal] = useState(false)
+  const [scanPathInput, setScanPathInput] = useState('')
+  const [isScanningPath, setIsScanningPath] = useState(false)
+  const [scanPathError, setScanPathError] = useState('')
 
   const homeFileRef = useRef(null)
   const chatFileRef = useRef(null)
@@ -169,34 +142,40 @@ export default function App() {
     [sessions, currentId]
   )
   const activeMessages = currentSession ? currentSession.messages : draftMessages
-  const activeTitle = currentSession ? currentSession.title : draftTitle
 
   useEffect(() => {
     persistSessions(sessions)
   }, [sessions])
 
   useEffect(() => {
-    if (view !== 'chat') return
-    if (lastAiRef.current) {
+    if (view === 'chat' && lastAiRef.current) {
       lastAiRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    } else if (messagesRef.current) {
+    } else if (view === 'chat' && messagesRef.current) {
       messagesRef.current.scrollTop = messagesRef.current.scrollHeight
     }
   }, [activeMessages.length, view, currentId])
 
   useEffect(() => {
-    const onEsc = e => {
-      if (e.key === 'Escape') setDrawerOpen(false)
+    if (editingTitle && currentSession) {
+      setTitleDraft(currentSession.title || '')
     }
-    window.addEventListener('keydown', onEsc)
-    return () => window.removeEventListener('keydown', onEsc)
-  }, [])
+  }, [editingTitle, currentSession])
+
+  function goHome() {
+    setDrawerOpen(false)
+    setViewerDoc(null)
+    setCurrentId(null)
+    setDraftMessages([])
+    setDraftTitle('New conversation')
+    setAttachedFiles([])
+    setView('home')
+  }
 
   function openNewChat() {
     setCurrentId(null)
     setDraftMessages([])
     setDraftTitle('New conversation')
-    setAttachedFile(null)
+    setAttachedFiles([])
     setViewerDoc(null)
     setView('chat')
     setTimeout(() => chatInputRef.current?.focus(), 80)
@@ -204,59 +183,122 @@ export default function App() {
 
   function loadSession(session) {
     setCurrentId(session.id)
-    setAttachedFile(null)
+    setAttachedFiles([])
     setViewerDoc(null)
     setView('chat')
+    setDrawerOpen(false)
   }
 
-  function commitInlineTitle() {
+  function commitTitle() {
     const trimmed = titleDraft.trim()
     setEditingTitle(false)
     if (!trimmed) return
     if (currentId) {
-      setSessions(prev =>
-        prev.map(s => (s.id === currentId ? { ...s, title: trimmed, titleLocked: true } : s))
-      )
+      setSessions(prev => {
+        const target = prev.find(s => s.id === currentId)
+        if (!target) return prev
+        const updated = { ...target, title: trimmed, titleLocked: true }
+        return [updated, ...prev.filter(s => s.id !== currentId)]
+      })
     } else {
       setDraftTitle(trimmed)
     }
   }
 
   function renameSession(id, newTitle) {
-    setSessions(prev =>
-      prev.map(s => (s.id === id ? { ...s, title: newTitle, titleLocked: true } : s))
-    )
+    setSessions(prev => {
+      const target = prev.find(s => s.id === id)
+      if (!target) return prev
+      const updated = { ...target, title: newTitle, titleLocked: true }
+      return [updated, ...prev.filter(s => s.id !== id)]
+    })
   }
 
   function deleteSession(id) {
     setSessions(prev => prev.filter(s => s.id !== id))
     if (currentId === id) {
-      setCurrentId(null)
-      setDraftMessages([])
-      setDraftTitle('New conversation')
-      setViewerDoc(null)
-      setView('home')
+      goHome()
     }
   }
 
-  async function handleSend(rawText, fileOverride) {
+  function handleFileSelect(fileList) {
+    if (!fileList || fileList.length === 0) return
+    const incoming = Array.from(fileList)
+    setAttachedFiles(prev => {
+      const existingNames = new Set(prev.map(f => f.name))
+      const fresh = incoming.filter(f => !existingNames.has(f.name))
+      return [...prev, ...fresh].slice(0, 20)
+    })
+  }
+
+  function removeAttachedFile(idx) {
+    setAttachedFiles(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  async function handleScanPathSubmit(e) {
+    if (e) e.preventDefault()
+    const pathStr = scanPathInput.trim()
+    if (!pathStr) return
+    setIsScanningPath(true)
+    setScanPathError('')
+    try {
+      const res = await scanPath(pathStr)
+      if (res.files && res.files.length > 0) {
+        setShowPathModal(false)
+        setScanPathInput('')
+        // Convert scanned files to simulated File objects or directly invoke handleSend with documents
+        const docsPayload = res.files.map(f => ({
+          name: f.name,
+          extracted_text: f.extracted_text,
+        }))
+        await handleSend(
+          `Accessibility scan of repository location: ${res.folder_path} (${res.total_files} files scanned)`,
+          null,
+          docsPayload
+        )
+      } else {
+        setScanPathError(`No supported code/document files (.html, .jsx, .tsx, .css, .md, .pdf) found in: ${pathStr}`)
+      }
+    } catch (err) {
+      setScanPathError(err.message || 'Failed to scan repository path.')
+    } finally {
+      setIsScanningPath(false)
+    }
+  }
+
+  async function handleSend(rawText, filesOverride, docsOverride) {
     const text = String(rawText || '').trim()
-    const file = fileOverride !== undefined ? fileOverride : attachedFile
-    if (!text && !file) return
+    const files = filesOverride !== undefined ? filesOverride : attachedFiles
+    const hasFiles = Array.isArray(files) && files.length > 0
+    const hasDocs = Array.isArray(docsOverride) && docsOverride.length > 0
+
+    if (!text && !hasFiles && !hasDocs) return
     if (isLoading) return
 
     setHomeInput('')
     setChatInput('')
-    setAttachedFile(null)
+    setAttachedFiles([])
     setView('chat')
     setIsLoading(true)
 
-    const sessionId = currentId || `ally_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
-    const localDocMeta = file
+    // HOME SESSION ISOLATION:
+    // If starting from home view or when no session is selected, ALWAYS generate fresh session!
+    const isHomeStart = view === 'home' || !currentId
+    const sessionId = (!isHomeStart && currentId) ? currentId : `ally_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+    if (isHomeStart) {
+      setCurrentId(sessionId)
+    }
+
+    const localDocMeta = hasFiles
       ? {
-          name: file.name,
-          size: formatSize(file.size),
-          blobUrl: URL.createObjectURL(file),
+          name: files.length === 1 ? files[0].name : `${files.length} Files Selected`,
+          size: files.length === 1 ? formatSize(files[0].size) : `${files.length} items`,
+          blobUrl: files[0] ? URL.createObjectURL(files[0]) : null,
+        }
+      : hasDocs
+      ? {
+          name: docsOverride.length === 1 ? docsOverride[0].name : `${docsOverride.length} Scanned Files`,
+          size: `${docsOverride.length} files`,
         }
       : null
 
@@ -267,46 +309,53 @@ export default function App() {
       doc: localDocMeta,
     }
 
-    const baseMessages = currentSession ? currentSession.messages : draftMessages
+    const baseMessages = (!isHomeStart && currentSession) ? currentSession.messages : []
     const nextMessages = [...baseMessages, userMsg]
-    const initialTitle =
-      currentSession?.titleLocked
-        ? currentSession.title
-        : baseMessages.length === 0
-          ? deriveTitle(text, localDocMeta)
-          : currentSession?.title || draftTitle
+    const initialTitle = (!isHomeStart && currentSession?.titleLocked)
+      ? currentSession.title
+      : baseMessages.length === 0
+      ? deriveTitle(text, localDocMeta)
+      : currentSession?.title || draftTitle
 
-    if (!currentId) {
-      setCurrentId(sessionId)
-      setSessions(prev => [
-        {
-          id: sessionId,
-          title: initialTitle,
-          titleLocked: false,
-          updatedAt: Date.now(),
-          messages: nextMessages,
-        },
-        ...prev,
-      ])
-    } else {
-      setSessions(prev =>
-        prev.map(s =>
-          s.id === sessionId
-            ? { ...s, title: initialTitle, updatedAt: Date.now(), messages: nextMessages }
-            : s
-        )
-      )
-    }
+    // Immediately place session at index 0 (top of recent list)
+    setSessions(prev => {
+      const existing = prev.find(s => s.id === sessionId)
+      const updated = existing
+        ? { ...existing, title: initialTitle, updatedAt: Date.now(), messages: nextMessages }
+        : {
+            id: sessionId,
+            title: initialTitle,
+            titleLocked: false,
+            updatedAt: Date.now(),
+            messages: nextMessages,
+          }
+      return [updated, ...prev.filter(s => s.id !== sessionId)]
+    })
 
     try {
-      const filePayload = file ? await prepareFilePayload(file) : {}
+      let filePayload = {}
+      let documentsPayload = hasDocs ? docsOverride : []
+
+      if (hasFiles) {
+        if (files.length === 1) {
+          filePayload = await prepareFilePayload(files[0])
+        } else {
+          documentsPayload = await Promise.all(
+            files.map(async f => ({
+              name: f.name,
+              content_base64: await fileToBase64(f),
+            }))
+          )
+        }
+      }
+
       const historyPayload = baseMessages.slice(-8).map(m => ({
         role: m.role,
         content:
           m.role === 'assistant'
             ? m.structured?.coach_summary || m.structured?.review_title || m.content || ''
             : m.doc?.name
-              ? `${m.content ? m.content + '\n' : ''}[Uploaded File: ${m.doc.name}]`
+              ? `${m.content ? m.content + '\n' : ''}[Uploaded Content: ${m.doc.name}]`
               : m.content || '',
       }))
 
@@ -315,8 +364,9 @@ export default function App() {
           message: text,
           history: historyPayload,
           filePayload,
+          documents: documentsPayload,
         }),
-        new Promise(res => setTimeout(res, 900))
+        new Promise(res => setTimeout(res, 800))
       ])
 
       const enrichedDoc = localDocMeta
@@ -342,37 +392,41 @@ export default function App() {
         structured: (res.type === 'accessibility_review' || res.rejected || res.rejection_details) ? res : null,
       }
 
-      setSessions(prev =>
-        prev.map(s => {
-          if (s.id !== sessionId) return s
-          const updatedMsgs = s.messages.map(m =>
-            m.id === userMsg.id && enrichedDoc ? { ...m, doc: enrichedDoc } : m
-          )
-          const finalMsgs = [...updatedMsgs, aiMsg]
-          const postTitle = s.titleLocked
-            ? s.title
-            : res.review_title || (s.title === 'New conversation' ? deriveTitle(text, enrichedDoc) : s.title)
-          return {
-            ...s,
-            title: postTitle,
-            updatedAt: Date.now(),
-            messages: finalMsgs,
-          }
-        })
-      )
+      // Update session and move to position 0 (1st in recent list)
+      setSessions(prev => {
+        const target = prev.find(s => s.id === sessionId)
+        if (!target) return prev
+        const updatedMsgs = target.messages.map(m =>
+          m.id === userMsg.id && enrichedDoc ? { ...m, doc: enrichedDoc } : m
+        )
+        const finalMsgs = [...updatedMsgs, aiMsg]
+        const postTitle = target.titleLocked
+          ? target.title
+          : res.review_title || (target.title === 'New conversation' ? deriveTitle(text, enrichedDoc) : target.title)
+        const updated = {
+          ...target,
+          title: postTitle,
+          updatedAt: Date.now(),
+          messages: finalMsgs,
+        }
+        return [updated, ...prev.filter(s => s.id !== sessionId)]
+      })
     } catch (err) {
       const errMsg = {
         id: `a_${Date.now()}`,
         role: 'assistant',
         content: `Unable to complete accessibility review right now: ${err.message || 'Network error'}`,
       }
-      setSessions(prev =>
-        prev.map(s =>
-          s.id === sessionId
-            ? { ...s, updatedAt: Date.now(), messages: [...s.messages, errMsg] }
-            : s
-        )
-      )
+      setSessions(prev => {
+        const target = prev.find(s => s.id === sessionId)
+        if (!target) return prev
+        const updated = {
+          ...target,
+          updatedAt: Date.now(),
+          messages: [...target.messages, errMsg],
+        }
+        return [updated, ...prev.filter(s => s.id !== sessionId)]
+      })
     } finally {
       setIsLoading(false)
     }
@@ -394,10 +448,23 @@ export default function App() {
         {view === 'home' ? (
           <section id="home" className="homePage">
             <header>
-              <div className="word">ALLY</div>
-              <button className="enter" type="button" onClick={openNewChat}>
-                ENTER WORKSPACE ↗
-              </button>
+              <div className="word" onClick={goHome} style={{ cursor: 'pointer' }}>ALLY</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <button
+                  className="ghost"
+                  type="button"
+                  onClick={() => setShowPathModal(true)}
+                  style={{ fontSize: '11px', padding: '6px 14px' }}
+                >
+                  <svg className="icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '6px' }}>
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  </svg>
+                  SCAN FOLDER / REPO
+                </button>
+                <button className="enter" type="button" onClick={openNewChat}>
+                  ENTER WORKSPACE ↗
+                </button>
+              </div>
             </header>
 
             <main className="home">
@@ -407,7 +474,7 @@ export default function App() {
                 <span>Better experience.</span>
               </h1>
               <p className="sub">
-                Paste a website URL, UI markup, links, form labels, or error copy — or upload a page file — for practical Issue -&gt; Why it matters -&gt; How to improve coaching.
+                Audit web links, forms, headings, ARIA attributes, and color contrast. Submit live URLs, drop bulk code files, or scan local repos for enterprise WCAG 2.2 Level AA/AAA compliance.
               </p>
 
               <div className="promptGlow">
@@ -415,25 +482,25 @@ export default function App() {
                   className="prompt"
                   onSubmit={e => {
                     e.preventDefault()
-                    handleSend(homeInput, attachedFile)
+                    handleSend(homeInput, attachedFiles)
                   }}
                 >
                   <input
                     ref={homeFileRef}
                     className="fileInput"
                     type="file"
+                    multiple
                     accept=".html,.htm,.jsx,.tsx,.css,.md,.txt,.pdf,.docx,.csv,.json,.xml"
                     onChange={e => {
-                      const f = e.target.files?.[0]
-                      if (f) setAttachedFile(f)
+                      handleFileSelect(e.target.files)
                       e.target.value = ''
                     }}
                   />
                   <button
                     className="startAttach"
                     type="button"
-                    aria-label="Attach page or UI file"
-                    title="Attach HTML, JSX, MD, or document file"
+                    aria-label="Attach page or UI files"
+                    title="Attach HTML, JSX, CSS, MD, or document files"
                     onClick={() => homeFileRef.current?.click()}
                   >
                     <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -443,7 +510,7 @@ export default function App() {
                   <input
                     value={homeInput}
                     onChange={e => setHomeInput(e.target.value)}
-                    placeholder="Ask ALLY, paste a URL (https://...), or paste UI / HTML..."
+                    placeholder="Ask ALLY, paste a URL (https://...), or paste UI / HTML markup..."
                     aria-label="Start conversation"
                   />
                   <button className="send" type="submit" aria-label="Send">
@@ -455,21 +522,22 @@ export default function App() {
                 </form>
               </div>
 
-              {attachedFile && (
-                <div style={{ display: 'flex', justifyContent: 'center', width: '100%', margin: '12px auto 0' }}>
-                  <div className="attachedRow">
-                    <span className="attachChip">
-                      <span className="attachName">{attachedFile.name}</span>
+              {attachedFiles.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px', maxWidth: '720px', margin: '14px auto 0' }}>
+                  {attachedFiles.map((f, idx) => (
+                    <span key={idx} className="attachChip">
+                      <span className="attachName">{f.name}</span>
+                      <span className="attachSize">{formatSize(f.size)}</span>
                       <button
                         type="button"
                         className="attachRemove"
-                        aria-label={`Remove ${attachedFile.name}`}
-                        onClick={() => setAttachedFile(null)}
+                        aria-label={`Remove ${f.name}`}
+                        onClick={() => removeAttachedFile(idx)}
                       >
                         ×
                       </button>
                     </span>
-                  </div>
+                  ))}
                 </div>
               )}
 
@@ -483,7 +551,7 @@ export default function App() {
                     <small>NOTHING YET</small>
                     <b>No conversations yet</b>
                     <p>
-                      Paste a webpage URL, HTML, copy, or attach a file above to get encouraging, actionable accessibility coaching.
+                      Paste a webpage URL, HTML markup, copy, or attach a file above to get encouraging, actionable accessibility coaching.
                     </p>
                   </div>
                 ) : (
@@ -504,55 +572,65 @@ export default function App() {
             </main>
           </section>
         ) : (
-          <section className={`chatPage${drawerOpen ? ' drawerOpen' : ''}`}>
-            <div className={`scrim${drawerOpen ? ' show' : ''}`} onClick={() => setDrawerOpen(false)} />
+          <section className="chatView">
+            <AllySidebar
+              sessions={sessions}
+              currentSessionId={currentId}
+              drawerOpen={drawerOpen}
+              onCloseDrawer={() => setDrawerOpen(false)}
+              onNew={openNewChat}
+              onLoad={loadSession}
+              onRename={renameSession}
+              onDelete={deleteSession}
+            />
 
-            <div className={`layout${viewerDoc ? ' withViewer' : ''}`}>
-              <AllySidebar
-                sessions={sessions}
-                currentSessionId={currentId}
-                onNew={openNewChat}
-                onLoad={loadSession}
-                onClose={() => setDrawerOpen(false)}
-                isOpen={drawerOpen}
-                onRename={renameSession}
-                onDelete={deleteSession}
-              />
-
-              <main className="chat">
+            <div className="chatStage">
+              <main className="chatMain">
                 <div className="chatHead">
-                  <div className="headLeft">
+                  <div className="titleCol">
                     {editingTitle ? (
                       <input
-                        autoFocus
                         className="titleInput"
                         value={titleDraft}
-                        maxLength={60}
+                        autoFocus
                         onChange={e => setTitleDraft(e.target.value)}
-                        onBlur={commitInlineTitle}
+                        onBlur={commitTitle}
                         onKeyDown={e => {
-                          if (e.key === 'Enter') commitInlineTitle()
+                          if (e.key === 'Enter') commitTitle()
                           if (e.key === 'Escape') setEditingTitle(false)
                         }}
                       />
                     ) : (
                       <button
                         type="button"
-                        id="title"
-                        className="titleEditable"
-                        title="Click to rename conversation"
-                        onClick={() => {
-                          setTitleDraft(activeTitle)
-                          setEditingTitle(true)
-                        }}
+                        className="titleBtn"
+                        title="Click to rename"
+                        onClick={() => setEditingTitle(true)}
                       >
-                        {activeTitle}
+                        <span className="titleText">
+                          {currentSession ? currentSession.title : draftTitle}
+                        </span>
+                        <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M12 20h9" />
+                          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                        </svg>
                       </button>
                     )}
                     <small>WEB ACCESSIBILITY COACH · INCLUSIVE UX GUIDANCE</small>
                   </div>
 
                   <div className="mobileActions">
+                    <button
+                      className="ghost"
+                      type="button"
+                      onClick={() => setShowPathModal(true)}
+                      title="Scan Folder or Repo Path"
+                    >
+                      <svg className="icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                      </svg>
+                      <span style={{ marginLeft: '6px' }}>SCAN REPO</span>
+                    </button>
                     <button
                       className="mobileMenu"
                       type="button"
@@ -568,11 +646,8 @@ export default function App() {
                     <button
                       className="ghost"
                       type="button"
-                      onClick={() => {
-                        setDrawerOpen(false)
-                        setViewerDoc(null)
-                        setView('home')
-                      }}
+                      onClick={goHome}
+                      title="Return to Home"
                     >
                       <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
                         <path d="m3 10 9-7 9 7" />
@@ -589,7 +664,7 @@ export default function App() {
                     <div className="welcomeHint">
                       <div className="welcomeTitle">Ready to Coach Accessibility</div>
                       <p>
-                        Paste HTML markup, links (like <code>Click here</code>), form instructions, or attach a page file for practical improvements.
+                        Paste HTML markup, links (like <code>Click here</code>), form instructions, or attach code files for practical improvements.
                       </p>
                     </div>
                   )}
@@ -607,13 +682,15 @@ export default function App() {
                             <div className="docPill">
                               <span className="docPillName">{msg.doc.name}</span>
                               {msg.doc.size && <span className="docPillSize">{msg.doc.size}</span>}
-                              <button
-                                type="button"
-                                className="docOpenBtn"
-                                onClick={() => setViewerDoc(msg.doc)}
-                              >
-                                Open ↗
-                              </button>
+                              {msg.doc.viewerHtml && (
+                                <button
+                                  type="button"
+                                  className="docOpenBtn"
+                                  onClick={() => setViewerDoc(msg.doc)}
+                                >
+                                  Open ↗
+                                </button>
+                              )}
                             </div>
                           </div>
                         )}
@@ -621,7 +698,11 @@ export default function App() {
                         {msg.role === 'user' ? (
                           msg.content && <div className="userText">{msg.content}</div>
                         ) : msg.structured ? (
-                          <AllyResultCard data={msg.structured} guardrails={msg.structured?.guardrails || msg.guardrails} onSendPrompt={prompt => handleSend(prompt)} />
+                          <AllyResultCard
+                            data={msg.structured}
+                            guardrails={msg.structured?.guardrails || msg.guardrails}
+                            onSendPrompt={prompt => handleSend(prompt)}
+                          />
                         ) : (
                           <div className="chatProse">
                             {String(msg.content || '')
@@ -647,21 +728,21 @@ export default function App() {
                 </div>
 
                 <div className="composerArea">
-                  {attachedFile && (
-                    <div style={{ display: 'flex', justifyContent: 'center', width: '100%', margin: '0 auto 10px' }}>
-                      <div className="attachedRow composerAttached">
-                        <span className="attachChip">
-                          <span className="attachName">{attachedFile.name}</span>
+                  {attachedFiles.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '6px', maxWidth: '780px', margin: '0 auto 10px' }}>
+                      {attachedFiles.map((f, idx) => (
+                        <span key={idx} className="attachChip">
+                          <span className="attachName">{f.name}</span>
                           <button
                             type="button"
                             className="attachRemove"
-                            aria-label={`Remove ${attachedFile.name}`}
-                            onClick={() => setAttachedFile(null)}
+                            aria-label={`Remove ${f.name}`}
+                            onClick={() => removeAttachedFile(idx)}
                           >
                             ×
                           </button>
                         </span>
-                      </div>
+                      ))}
                     </div>
                   )}
 
@@ -669,25 +750,25 @@ export default function App() {
                     <form
                       onSubmit={e => {
                         e.preventDefault()
-                        handleSend(chatInput, attachedFile)
+                        handleSend(chatInput, attachedFiles)
                       }}
                     >
                       <input
                         ref={chatFileRef}
                         className="fileInput"
                         type="file"
+                        multiple
                         accept=".html,.htm,.jsx,.tsx,.css,.md,.txt,.pdf,.docx,.csv,.json,.xml"
                         onChange={e => {
-                          const f = e.target.files?.[0]
-                          if (f) setAttachedFile(f)
+                          handleFileSelect(e.target.files)
                           e.target.value = ''
                         }}
                       />
                       <button
                         className="plus"
                         type="button"
-                        aria-label="Attach page or UI file"
-                        title="Attach HTML, JSX, MD, or document file"
+                        aria-label="Attach page or UI files"
+                        title="Attach HTML, JSX, CSS, MD, or document files"
                         onClick={() => chatFileRef.current?.click()}
                       >
                         <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -725,8 +806,90 @@ export default function App() {
             </div>
           </section>
         )}
+
+        {/* REPO / FOLDER PATH SCANNER MODAL */}
+        {showPathModal && (
+          <div className="modalBackdrop" onClick={() => setShowPathModal(false)}>
+            <div className="modalCard" onClick={e => e.stopPropagation()}>
+              <div className="modalHead">
+                <h3>Scan Repository or Local Folder Path</h3>
+                <button
+                  type="button"
+                  className="modalCloseBtn"
+                  onClick={() => setShowPathModal(false)}
+                >
+                  ×
+                </button>
+              </div>
+              <p className="modalSub">
+                Enter an absolute or relative directory path to bulk-audit all HTML, JSX, TSX, CSS, MD, and PDF files for WCAG accessibility violations.
+              </p>
+              <form onSubmit={handleScanPathSubmit}>
+                <input
+                  type="text"
+                  className="modalInput"
+                  placeholder="e.g. C:\Projects\MyWebApp\src or /var/www/html"
+                  value={scanPathInput}
+                  onChange={e => setScanPathInput(e.target.value)}
+                  autoFocus
+                />
+                {scanPathError && <div className="modalError">{scanPathError}</div>}
+                <div className="modalActions">
+                  <button
+                    type="button"
+                    className="modalCancelBtn"
+                    onClick={() => setShowPathModal(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="modalScanBtn"
+                    disabled={isScanningPath || !scanPathInput.trim()}
+                  >
+                    {isScanningPath ? 'Scanning Files...' : 'Scan Location'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     </ErrorBoundary>
   )
 }
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false, error: null }
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error }
+  }
+  componentDidCatch(error, info) {
+    console.error('ALLY caught an error:', error, info)
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 32, color: '#f87171', background: '#020c16', minHeight: '100vh', fontFamily: 'system-ui' }}>
+          <h2>Something went wrong in ALLY</h2>
+          <pre style={{ whiteSpace: 'pre-wrap', background: 'rgba(239, 68, 68, 0.1)', padding: 16, borderRadius: 8 }}>
+            {String(this.state.error?.stack || this.state.error)}
+          </pre>
+          <button
+            onClick={() => {
+              localStorage.removeItem(STORAGE_KEY)
+              window.location.reload()
+            }}
+            style={{ marginTop: 16, padding: '8px 16px', background: '#078cff', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+          >
+            Reset App State &amp; Reload
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}

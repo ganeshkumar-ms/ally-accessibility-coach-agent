@@ -51,19 +51,36 @@ export async function prepareFilePayload(file) {
   }
 }
 
-export async function sendAllyReview({ message, history, filePayload }) {
+export async function sendAllyReview({ message, history, filePayload, documents }) {
+  const body = {
+    message: message || '',
+    history: history || [],
+    ...(filePayload || {}),
+  }
+  if (Array.isArray(documents) && documents.length > 0) {
+    body.documents = documents
+  }
   const res = await fetch(urlFor('/api/review'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message: message || '',
-      history: history || [],
-      ...(filePayload || {}),
-    }),
+    body: JSON.stringify(body),
   })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
     throw new Error(detail || `Server responded ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function scanPath(folderPath) {
+  const res = await fetch(urlFor('/api/scan-path'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folder_path: folderPath }),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(detail || `Scan error (${res.status})`)
   }
   return res.json()
 }
@@ -79,4 +96,3 @@ export async function fetchDocumentPreview(s3Key, fileName) {
   }
   return res.json()
 }
-

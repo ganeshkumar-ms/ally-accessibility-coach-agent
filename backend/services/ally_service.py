@@ -268,6 +268,13 @@ def _deterministic_fallback(text: str, file_name: str = '') -> dict:
     verdict = 'CRITICAL_BARRIERS' if high_cnt >= 2 else ('NEEDS_COACHING' if (high_cnt + med_cnt) > 0 else 'STRONG_ACCESSIBILITY')
     score = max(35, min(95, 92 - high_cnt * 18 - med_cnt * 9))
 
+    for f in findings:
+        f['non_compliant_code'] = f.get('non_compliant_code') or f.get('original_snippet') or ''
+        f['compliant_code'] = f.get('compliant_code') or f.get('suggested_fix') or ''
+        f['wcag_highlight'] = f.get('wcag_highlight') or f.get('wcag_reference') or 'WCAG 2.2 Level AA'
+
+    remediated_doc = _generate_remediated_document(text or '', findings)
+
     return {
         'type': 'accessibility_review',
         'review_title': f'{file_name} Accessibility Review' if file_name else 'Accessibility Coaching Review',
@@ -286,6 +293,8 @@ def _deterministic_fallback(text: str, file_name: str = '') -> dict:
         },
         'findings': findings,
         'strengths': ['Content submitted early for proactive accessibility coaching.'],
+        'remediation_offer': 'Should I apply these WCAG remediations to your code / document?',
+        'remediated_document': remediated_doc,
         'validation_note': 'Formal accessibility certification should still combine automated testing with assistive-technology and human validation.',
     }
 
@@ -302,16 +311,23 @@ def _normalize_review(payload: dict, fallback_scope: str) -> dict:
         prio = str(item.get('priority') or 'MEDIUM').strip().upper()
         if prio not in ALLOWED_PRIORITIES:
             prio = 'MEDIUM'
+        non_comp = str(item.get('non_compliant_code') or item.get('original_snippet') or '').strip()
+        comp = str(item.get('compliant_code') or item.get('suggested_fix') or '').strip()
+        wcag_ref = str(item.get('wcag_reference') or item.get('wcag_highlight') or 'WCAG 2.2 Level AA').strip()
+
         findings.append({
             'category': str(item.get('category') or 'Content Semantics').strip(),
             'priority': prio,
             'element_or_location': str(item.get('element_or_location') or 'Submitted element').strip(),
-            'original_snippet': str(item.get('original_snippet') or '').strip(),
+            'original_snippet': non_comp,
+            'non_compliant_code': non_comp,
             'issue': str(item.get('issue') or 'Accessibility clarity can be strengthened.').strip(),
             'why_it_matters': str(item.get('why_it_matters') or 'Affects comprehension for assistive-tech and keyboard users.').strip(),
             'how_to_improve': str(item.get('how_to_improve') or 'Provide explicit semantic structure and descriptive wording.').strip(),
-            'suggested_fix': str(item.get('suggested_fix') or '').strip(),
-            'wcag_reference': str(item.get('wcag_reference') or 'WCAG 2.1 AA').strip(),
+            'suggested_fix': comp,
+            'compliant_code': comp,
+            'wcag_reference': wcag_ref,
+            'wcag_highlight': wcag_ref,
         })
 
     high_cnt = sum(1 for f in findings if f['priority'] == 'HIGH')
@@ -360,6 +376,8 @@ def _normalize_review(payload: dict, fallback_scope: str) -> dict:
         },
         'findings': findings,
         'strengths': [str(s).strip() for s in strengths[:6] if str(s).strip()],
+        'remediation_offer': 'Should I apply these WCAG remediations to your code / document?',
+        'remediated_document': str(payload.get('remediated_document') or '').strip() or _generate_remediated_document('', findings),
         'validation_note': validation_note,
     }
 
