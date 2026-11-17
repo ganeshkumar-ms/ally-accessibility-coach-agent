@@ -58,7 +58,7 @@ def lambda_handler(event, context):
     if method == 'OPTIONS':
         return {'statusCode': 200, 'headers': CORS_HEADERS, 'body': ''}
 
-    if method == 'GET' and raw_path in ('/api/health', '/health'):
+    if method == 'GET' and raw_path in ('/api/health', '/health', '/', ''):
         return _json_response(200, {'status': 'healthy', 'service': 'ALLY WEB ACCESSIBILITY COACH'})
 
     if method == 'GET' and raw_path == '/api/view-document':

@@ -11,6 +11,42 @@ function formatInlineBold(text) {
   )
 }
 
+function parseRejection(data) {
+  const rej = data?.rejection_details || {}
+  const msg = typeof data?.message === 'string' ? data.message : ''
+  let title = rej.title || data?.title || ''
+  let filename = rej.filename || data?.filename || data?.file_name || data?.document?.filename || data?.document_metadata?.filename || 'Uploaded Document'
+  let reason = rej.reason || rej.why || ''
+  let technicalDetail = rej.technical_detail || ''
+  let supported = rej.supported_formats || ''
+  let howToFix = rej.how_to_fix || ''
+
+  if (msg.includes('•') || (!reason && msg.includes('File Not Accepted'))) {
+    const parts = msg.split(/\s*•\s*/)
+    parts.forEach((p, idx) => {
+      const part = p.trim()
+      if (idx === 0 && !title) {
+        title = part
+      } else if (part.toLowerCase().startsWith('file:') && !filename) {
+        filename = part.substring(part.indexOf(':') + 1).trim()
+      } else if (part.toLowerCase().includes('why it was not accepted:') && !reason) {
+        reason = part.substring(part.indexOf(':') + 1).trim()
+      } else if (part.toLowerCase().includes('technical details:') && !technicalDetail) {
+        technicalDetail = part.substring(part.indexOf(':') + 1).trim()
+      } else if (part.toLowerCase().includes('supported formats') && !supported) {
+        supported = part.substring(part.indexOf(':') + 1).trim()
+      } else if (part.toLowerCase().includes('how to fix') && !howToFix) {
+        howToFix = part.substring(part.indexOf(':') + 1).trim()
+      }
+    })
+  }
+  if (!title) title = 'File Not Accepted'
+    const isSecurity = /credential|secret|access key|password|token/i.test(title + ' ' + reason);
+  let reasonLabel = isSecurity ? 'Security & Policy Violation' : 'Reason for Rejection';
+  const isFormatIssue = /format|extension|unsupported|binary|unreadable|corrupt|container|mime/i.test(title + ' ' + reason + ' ' + technicalDetail) && !isSecurity && !/empty|blank/i.test(title + ' ' + reason);
+  return { title, filename, reason, reasonLabel, technicalDetail, supported: isFormatIssue ? supported : '', howToFix }
+}
+
 export default function AllyResultCard({ data, guardrails: propGuardrails, onSendPrompt }) {
   const [showRemediated, setShowRemediated] = useState(false)
   const [copiedCode, setCopiedCode] = useState(false)
@@ -19,6 +55,61 @@ export default function AllyResultCard({ data, guardrails: propGuardrails, onSen
 
   const guardrails = propGuardrails || data?.guardrails || {}
   const traceId = data?.trace_id || guardrails?.trace_id || ''
+
+  // 1. Structured File Rejection Card
+  if (data.rejected || data.rejection_details || (typeof data.message === 'string' && data.message.includes('File Not Accepted'))) {
+    const rej = parseRejection(data)
+
+    return (
+      <div className="allyRejectionCard">
+        <div className="allyRejectionHeader">
+          <div className="allyRejectionBadge">
+            <span>⚠️</span>
+            <span>{rej.title}</span>
+          </div>
+          <span className="allyRejectionFile">
+            📄 {rej.filename}
+          </span>
+        </div>
+
+        <div className="allyRejectionBody">
+          {rej.reason && (
+            <div className="rejectionSection">
+              <span className="rejectionLabel">{rej.reasonLabel || 'Reason for Rejection'}</span>
+              <p className="rejectionValue">{rej.reason}</p>
+            </div>
+          )}
+
+          {rej.technicalDetail && (
+            <div className="rejectionSection">
+              <span className="rejectionLabel">Technical Details</span>
+              <p className="rejectionValue mono">{rej.technicalDetail}</p>
+            </div>
+          )}
+
+          {rej.supported && (
+            <div className="rejectionSection">
+              <span className="rejectionLabel">Supported Formats for ALLY</span>
+              <p className="rejectionValue">{rej.supported}</p>
+            </div>
+          )}
+
+          {rej.howToFix && (
+            <div className="rejectionSection fixSection">
+              <span className="rejectionLabel">How to Fix & Re-upload</span>
+              <p className="rejectionValue">{rej.howToFix}</p>
+            </div>
+          )}
+
+          {!rej.reason && (
+            <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: '13.5px', color: '#e2e8f0' }}>
+              {data.message}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   if (data.type === 'chat' || !Array.isArray(data.findings)) {
     return (

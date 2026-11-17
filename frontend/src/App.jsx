@@ -339,7 +339,7 @@ export default function App() {
         id: `a_${Date.now()}`,
         role: 'assistant',
         content: res.type === 'chat' ? res.message : res.coach_summary || res.review_title || 'Accessibility review complete',
-        structured: res.type === 'accessibility_review' ? res : null,
+        structured: (res.type === 'accessibility_review' || res.rejected || res.rejection_details) ? res : null,
       }
 
       setSessions(prev =>
@@ -456,18 +456,20 @@ export default function App() {
               </div>
 
               {attachedFile && (
-                <div className="attachedRow">
-                  <span className="attachChip">
-                    <span className="attachName">{attachedFile.name}</span>
-                    <button
-                      type="button"
-                      className="attachRemove"
-                      aria-label={`Remove ${attachedFile.name}`}
-                      onClick={() => setAttachedFile(null)}
-                    >
-                      ×
-                    </button>
-                  </span>
+                <div style={{ display: 'flex', justifyContent: 'center', width: '100%', margin: '12px auto 0' }}>
+                  <div className="attachedRow">
+                    <span className="attachChip">
+                      <span className="attachName">{attachedFile.name}</span>
+                      <button
+                        type="button"
+                        className="attachRemove"
+                        aria-label={`Remove ${attachedFile.name}`}
+                        onClick={() => setAttachedFile(null)}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  </div>
                 </div>
               )}
 
@@ -646,18 +648,20 @@ export default function App() {
 
                 <div className="composerArea">
                   {attachedFile && (
-                    <div className="attachedRow composerAttached">
-                      <span className="attachChip">
-                        <span className="attachName">{attachedFile.name}</span>
-                        <button
-                          type="button"
-                          className="attachRemove"
-                          aria-label={`Remove ${attachedFile.name}`}
-                          onClick={() => setAttachedFile(null)}
-                        >
-                          ×
-                        </button>
-                      </span>
+                    <div style={{ display: 'flex', justifyContent: 'center', width: '100%', margin: '0 auto 10px' }}>
+                      <div className="attachedRow composerAttached">
+                        <span className="attachChip">
+                          <span className="attachName">{attachedFile.name}</span>
+                          <button
+                            type="button"
+                            className="attachRemove"
+                            aria-label={`Remove ${attachedFile.name}`}
+                            onClick={() => setAttachedFile(null)}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      </div>
                     </div>
                   )}
 
