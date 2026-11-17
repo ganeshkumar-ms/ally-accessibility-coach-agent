@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import React, { Component, useState, useEffect, useRef, useMemo } from 'react'
 import AllySidebar from './components/AllySidebar'
 import AllyResultCard from './components/AllyResultCard'
 import DocumentViewer from './components/DocumentViewer'
@@ -859,7 +859,7 @@ export default function App() {
   )
 }
 
-class ErrorBoundary extends React.Component {
+class ErrorBoundary extends Component {
   constructor(props) {
     super(props)
     this.state = { hasError: false, error: null }
