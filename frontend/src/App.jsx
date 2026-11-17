@@ -474,15 +474,15 @@ export default function App() {
               )}
 
               <div className="recentHead">
-                <b>Continue where you left off</b>
                 <span>RECENT CONVERSATIONS</span>
               </div>
 
               <div className="cards">
                 {sessions.length === 0 ? (
-                  <div className="emptyCard">
-                    <div className="emptyTitle">No conversations yet</div>
-                    <p className="emptyDesc">
+                  <div className="card emptyCard">
+                    <small>NOTHING YET</small>
+                    <b>No conversations yet</b>
+                    <p>
                       Paste a webpage URL, HTML, copy, or attach a file above to get encouraging, actionable accessibility coaching.
                     </p>
                   </div>
