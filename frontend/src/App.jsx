@@ -679,7 +679,6 @@ export default function App() {
                         </span>
                       </button>
                     )}
-                    <small>WEB ACCESSIBILITY COACH · INCLUSIVE UX GUIDANCE</small>
                   </div>
 
                   <div className="mobileActions">
