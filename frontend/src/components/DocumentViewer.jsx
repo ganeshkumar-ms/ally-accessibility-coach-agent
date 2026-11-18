@@ -42,14 +42,27 @@ export default function DocumentViewer({ doc, onClose }) {
           <span className="docBadge">ALLY SOURCE</span>
           <strong className="docName" title={doc.name}>{doc.name}</strong>
         </div>
-        <button
-          type="button"
-          className="docClose"
-          onClick={onClose}
-          aria-label="Close document viewer"
-        >
-          Close
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {doc.sourceUrl && (
+            <a
+              href={doc.sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="docClose"
+              style={{ textDecoration: 'none' }}
+            >
+              Open Link ↗
+            </a>
+          )}
+          <button
+            type="button"
+            className="docClose"
+            onClick={onClose}
+            aria-label="Close document viewer"
+          >
+            Close
+          </button>
+        </div>
       </div>
 
       <div className="docBody">

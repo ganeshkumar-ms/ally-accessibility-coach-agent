@@ -20,18 +20,61 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function deriveTitle(text, doc) {
-  if (doc?.name) {
-    const clean = doc.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim()
-    return clean ? clean.slice(0, 32) : 'Accessibility Review'
+function formatSmartWords(rawStr) {
+  const words = String(rawStr || '')
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map(w => (['ui', 'ux', 'wcag', 'html', 'css', 'api', 'cms', 'dom', 'aria'].includes(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
+  return words.slice(0, 5).join(' ')
+}
+
+function deriveTitle(text, doc, aiRes) {
+  if (aiRes?.review_title) {
+    const rawRev = String(aiRes.review_title).trim()
+    if (!/\.(?:html?|jsx|tsx|css|js|md|pdf|docx)\b/i.test(rawRev) && !/highlighted_/i.test(rawRev)) {
+      return rawRev.length > 42 ? `${rawRev.slice(0, 40).trim()}…` : rawRev
+    }
+    const cleanedRev = rawRev
+      .replace(/\s*Web Accessibility Audit$/i, '')
+      .replace(/\s*Accessibility Audit$/i, '')
+      .replace(/\.[^.]+$/, '')
+      .replace(/^(?:highlighted_|remediated_|wcag_|final_|fixed_)+/i, '')
+    const smartRev = formatSmartWords(cleanedRev)
+    if (smartRev) return `${smartRev} Accessibility Audit`
   }
-  const clean = String(text || '')
-    .replace(/^https?:\/\//i, '')
-    .replace(/^(please\s+|can\s+you\s+|check\s+|review\s+|audit\s+)/i, '')
+
+  if (doc?.name) {
+    const base = String(doc.name)
+      .replace(/\.[^.]+$/, '')
+      .replace(/^(?:highlighted_|remediated_|wcag_|final_|fixed_)+/i, '')
+      .trim()
+    const smartDoc = formatSmartWords(base)
+    return smartDoc ? `${smartDoc} Audit` : 'Accessibility Review'
+  }
+
+  const rawText = String(text || '').trim()
+  if (!rawText) return 'New conversation'
+
+  const urlMatch = rawText.match(/(?:https?:\/\/|www\.)([^\s/]+)/i)
+  if (urlMatch) {
+    const host = urlMatch[1].replace(/^www\./i, '').split('.')[0]
+    const hostTitle = host.charAt(0).toUpperCase() + host.slice(1)
+    return `${hostTitle} Web Audit`
+  }
+
+  if (/^<[a-zA-Z]/.test(rawText)) {
+    const tagMatch = rawText.match(/^<([a-zA-Z0-9-]+)/)
+    const tagName = tagMatch ? tagMatch[1].toUpperCase() : 'DOM'
+    return `${tagName} Markup Accessibility Audit`
+  }
+
+  const clean = rawText
+    .replace(/^(?:please\s+|can\s+you\s+|check\s+|review\s+|audit\s+|inspect\s+|analyze\s+)/i, '')
     .trim()
-  if (!clean) return 'New conversation'
-  const firstLine = clean.split('\n')[0].slice(0, 32).trim()
-  return firstLine.length < clean.length ? `${firstLine}…` : firstLine
+  if (!clean || /^(?:hi+|hello+|hey+|thanks?|ok(?:ay)?)$/i.test(clean)) return 'New conversation'
+  const firstLine = clean.split('\n')[0].slice(0, 36).trim()
+  const titled = firstLine.charAt(0).toUpperCase() + firstLine.slice(1)
+  return firstLine.length < clean.length ? `${titled}…` : titled
 }
 
 function getSmartPreview(messages) {
@@ -66,15 +109,10 @@ function loadSessions() {
       .map(s => {
         if (!s.titleLocked) {
           const lastAudit = [...s.messages].reverse().find(m => m.structured?.review_title)
-          if (lastAudit?.structured?.review_title) {
-            return { ...s, title: lastAudit.structured.review_title }
-          }
           const firstUser = s.messages.find(m => m.role === 'user')
-          if (firstUser) {
-            const better = deriveTitle(firstUser.content, firstUser.doc)
-            if (better !== 'New conversation' && better !== s.title) {
-              return { ...s, title: better }
-            }
+          const better = deriveTitle(firstUser?.content, firstUser?.doc, lastAudit?.structured)
+          if (better && better !== 'New conversation') {
+            return { ...s, title: better }
           }
         }
         return s
@@ -99,6 +137,8 @@ function persistSessions(list) {
                 name: m.doc.name,
                 size: m.doc.size,
                 s3Key: m.doc.s3Key,
+                sourceUrl: m.doc.sourceUrl,
+                viewerHtml: m.doc.viewerHtml ? String(m.doc.viewerHtml).slice(0, 24000) : undefined,
                 extractedText: m.doc.extractedText ? String(m.doc.extractedText).slice(0, 12000) : undefined,
               }
             : undefined,
@@ -217,7 +257,7 @@ export default function App() {
   function deleteSession(id) {
     setSessions(prev => prev.filter(s => s.id !== id))
     if (currentId === id) {
-      goHome()
+      openNewChat()
     }
   }
 
@@ -353,15 +393,37 @@ export default function App() {
         role: m.role,
         content:
           m.role === 'assistant'
-            ? m.structured?.coach_summary || m.structured?.review_title || m.content || ''
+            ? (m.structured
+                ? JSON.stringify({
+                    title: m.structured.review_title,
+                    scope: m.structured.content_scope,
+                    verdict: m.structured.coach_verdict,
+                    readiness_score: m.structured.readiness_score,
+                    summary: m.structured.coach_summary,
+                    findings: (m.structured.findings || []).slice(0, 12).map(f => ({
+                      severity: f.priority || f.severity,
+                      area: f.area || f.category,
+                      issue: f.issue,
+                      fix: f.how_to_improve || f.recommendation,
+                    })),
+                  }).slice(0, 2400)
+                : m.content || '')
             : m.doc?.name
               ? `${m.content ? m.content + '\n' : ''}[Uploaded Content: ${m.doc.name}]`
               : m.content || '',
       }))
 
+      const isRetryOrRefine = !hasFiles && !hasDocs && /\b(retry|try again|re-?analyze|redo|more specific|be more specific|more detail|deeper)\b/i.test(text)
+      const priorUrlMatch = isRetryOrRefine
+        ? [...baseMessages].reverse().find(m => m.role === 'user' && /https?:\/\/\S+/i.test(m.content || ''))?.content?.match(/https?:\/\/\S+/i)?.[0]
+        : null
+      const effectiveMessage = priorUrlMatch && !/https?:\/\/\S+/i.test(text)
+        ? `${text}\n\nRe-analyze target URL with deeper, more specific findings: ${priorUrlMatch}`
+        : text
+
       const [res] = await Promise.all([
         sendAllyReview({
-          message: text,
+          message: effectiveMessage,
           history: historyPayload,
           filePayload,
           documents: documentsPayload,
@@ -376,10 +438,11 @@ export default function App() {
             extractedText: res.extracted_text,
             s3Key: filePayload.s3_key,
           }
-        : res.viewer_html
+        : res.viewer_html || res.source_url
           ? {
               name: res.file_name || res.source_url || 'webpage.html',
               size: 'Live URL',
+              sourceUrl: res.source_url,
               viewerHtml: res.viewer_html,
               extractedText: res.extracted_text,
             }
@@ -402,7 +465,7 @@ export default function App() {
         const finalMsgs = [...updatedMsgs, aiMsg]
         const postTitle = target.titleLocked
           ? target.title
-          : res.review_title || (target.title === 'New conversation' ? deriveTitle(text, enrichedDoc) : target.title)
+          : deriveTitle(text, enrichedDoc, res) || target.title
         const updated = {
           ...target,
           title: postTitle,
@@ -450,17 +513,6 @@ export default function App() {
             <header>
               <div className="word" onClick={goHome} style={{ cursor: 'pointer' }}>ALLY</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <button
-                  className="ghost"
-                  type="button"
-                  onClick={() => setShowPathModal(true)}
-                  style={{ fontSize: '11px', padding: '6px 14px' }}
-                >
-                  <svg className="icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '6px' }}>
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                  </svg>
-                  SCAN FOLDER / REPO
-                </button>
                 <button className="enter" type="button" onClick={openNewChat}>
                   ENTER WORKSPACE ↗
                 </button>
@@ -505,6 +557,17 @@ export default function App() {
                   >
                     <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
                       <path d="m21.4 11.6-8.9 8.9a6 6 0 0 1-8.5-8.5l9.3-9.3a4 4 0 0 1 5.7 5.7l-9.3 9.3a2 2 0 0 1-2.8-2.8l8.6-8.6" />
+                    </svg>
+                  </button>
+                  <button
+                    className="startAttach"
+                    type="button"
+                    aria-label="Scan folder or repository"
+                    title="Scan a local folder or repository path"
+                    onClick={() => setShowPathModal(true)}
+                  >
+                    <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                     </svg>
                   </button>
                   <input
@@ -572,20 +635,20 @@ export default function App() {
             </main>
           </section>
         ) : (
-          <section className="chatView">
-            <AllySidebar
-              sessions={sessions}
-              currentSessionId={currentId}
-              drawerOpen={drawerOpen}
-              onCloseDrawer={() => setDrawerOpen(false)}
-              onNew={openNewChat}
-              onLoad={loadSession}
-              onRename={renameSession}
-              onDelete={deleteSession}
-            />
+          <section className="chatPage" id="chatPage">
+            <div className={`layout${viewerDoc ? ' withViewer' : ''}`}>
+              <AllySidebar
+                sessions={sessions}
+                currentSessionId={currentId}
+                isOpen={drawerOpen}
+                onClose={() => setDrawerOpen(false)}
+                onNew={openNewChat}
+                onLoad={loadSession}
+                onRename={renameSession}
+                onDelete={deleteSession}
+              />
 
-            <div className="chatStage">
-              <main className="chatMain">
+              <main className="chat">
                 <div className="chatHead">
                   <div className="headLeft titleCol">
                     {editingTitle ? (
@@ -614,10 +677,6 @@ export default function App() {
                         <span className="titleText">
                           {currentSession ? currentSession.title : draftTitle}
                         </span>
-                        <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
-                          <path d="M12 20h9" />
-                          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                        </svg>
                       </button>
                     )}
                     <small>WEB ACCESSIBILITY COACH · INCLUSIVE UX GUIDANCE</small>
@@ -675,7 +734,7 @@ export default function App() {
                             <div className="docPill">
                               <span className="docPillName">{msg.doc.name}</span>
                               {msg.doc.size && <span className="docPillSize">{msg.doc.size}</span>}
-                              {msg.doc.viewerHtml && (
+                              {(msg.doc.viewerHtml || msg.doc.extractedText || msg.doc.blobUrl || msg.doc.s3Key) && (
                                 <button
                                   type="button"
                                   className="docOpenBtn"
@@ -683,6 +742,17 @@ export default function App() {
                                 >
                                   Open ↗
                                 </button>
+                              )}
+                              {msg.doc.sourceUrl && (
+                                <a
+                                  href={msg.doc.sourceUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="docOpenBtn"
+                                  style={{ textDecoration: 'none' }}
+                                >
+                                  Link ↗
+                                </a>
                               )}
                             </div>
                           </div>
@@ -766,6 +836,17 @@ export default function App() {
                       >
                         <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
                           <path d="m21.4 11.6-8.9 8.9a6 6 0 0 1-8.5-8.5l9.3-9.3a4 4 0 0 1 5.7 5.7l-9.3 9.3a2 2 0 0 1-2.8-2.8l8.6-8.6" />
+                        </svg>
+                      </button>
+                      <button
+                        className="plus scanBtn"
+                        type="button"
+                        aria-label="Scan folder or repository"
+                        title="Scan a local folder or repository path"
+                        onClick={() => setShowPathModal(true)}
+                      >
+                        <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                         </svg>
                       </button>
                       <input

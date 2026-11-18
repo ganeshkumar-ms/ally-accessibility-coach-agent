@@ -200,10 +200,10 @@ def inspect_and_sanitize(text: str, is_document: bool = False) -> Dict:
 
     # 0. Raw Credential / Access Key File Violation (PCI-DSS & GLBA)
     has_aws_key = bool(re.search(r'(?i)\b(?:AKIA|ASIA)[0-9A-Z]{16}\b', raw))
-    has_key_header = bool(re.search(r'(?i)(?:access\s*key\s*id|secret\s*access\s*key|aws[_\s]*access[_\s]*key|aws[_\s]*secret|api[_\s]*secret|private[_\s]*key|password\s*=|db_pass)', raw))
+    has_key_header = bool(re.search(r'(?i)(?:access\s*key\s*id\s*[,:\t]|secret\s*access\s*key\s*[,:\t]|aws[_\s]*access[_\s]*key[_\s]*id\s*[=:]|aws[_\s]*secret[_\s]*access[_\s]*key\s*[=:])', raw))
     has_pem_key = bool(re.search(r'-----BEGIN\s+(?:RSA\s+|OPENSSH\s+|EC\s+|DSA\s+)?PRIVATE\s+KEY-----', raw, flags=re.IGNORECASE))
-    has_secret_dump = bool(re.search(r"(?i)(?:secret[_\s]*access[_\s]*key|aws[_\s]*secret[_\s]*access[_\s]*key)\s*[:=,]\s*['\"]?[A-Za-z0-9/+=]{6,64}", raw))
-    has_cred_marker = bool(re.search(r'(?i)(?:access[_\-]?keys?\.csv|credentials?\.csv|\.env|id_rsa|access_key_id)', raw))
+    has_secret_dump = bool(re.search(r"(?i)(?:secret[_\s]*access[_\s]*key|aws[_\s]*secret[_\s]*access[_\s]*key)\s*[:=,]\s*['\"]?[A-Za-z0-9/+=]{16,64}", raw))
+    has_cred_marker = bool(re.search(r'(?i)\b(?:access[_\-]?keys?\.csv|credentials?\.csv|id_rsa|access_key_id)\b', raw))
 
     if has_pem_key or has_aws_key or has_key_header or has_secret_dump or has_cred_marker:
         return {

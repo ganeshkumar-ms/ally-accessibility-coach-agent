@@ -1,9 +1,13 @@
+import gzip
 import ipaddress
+import os
 import re
 import socket
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from html.parser import HTMLParser
 from typing import Dict, List, Optional, Tuple
 
@@ -122,6 +126,16 @@ def extract_target_url(user_message: str = '', explicit_url: str = '') -> Tuple[
     www_match = re.search(r'\bwww\.[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:/[^\s<>"\']*)?', msg, flags=re.IGNORECASE)
     if www_match:
         return _clean_extracted_url(www_match.group(0)), None
+
+    bare_domain_match = re.search(
+        r'\b(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+(?:com|org|net|edu|gov|io|co|ai|app|dev|in|uk|us|ca|de|fr|jp|au|info|biz|me|tech|cloud)(?::\d{2,5})?(?:/[^\s<>"\']*)?\b',
+        msg,
+        flags=re.IGNORECASE,
+    )
+    if bare_domain_match:
+        candidate = _clean_extracted_url(bare_domain_match.group(0))
+        if not candidate.lower().endswith(('.html', '.htm', '.jsx', '.tsx', '.css', '.js', '.md', '.pdf', '.docx', '.csv', '.json', '.xml', '.png', '.jpg')) or '/' in candidate:
+            return 'https://' + candidate, None
 
     return None, None
 
@@ -414,13 +428,20 @@ def fetch_url_for_accessibility(url: str) -> Dict:
     """
     try:
         _validate_public_url(url)
-        opener = urllib.request.build_opener(_SafeRedirectHandler())
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+        opener = urllib.request.build_opener(
+            _SafeRedirectHandler(),
+            urllib.request.HTTPSHandler(context=ssl_ctx),
+        )
         req = urllib.request.Request(
             url,
             headers={
-                'User-Agent': 'Mozilla/5.0 (compatible; ALLY-Accessibility-Coach/1.0)',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,text/plain,application/xml;q=0.9,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate',
             },
             method='GET',
         )
@@ -429,7 +450,21 @@ def fetch_url_for_accessibility(url: str) -> Dict:
             final_url = resp.geturl() or url
             _validate_public_url(final_url)
             ctype = (resp.headers.get('Content-Type') or '').split(';', 1)[0].strip().lower()
+            c_enc = (resp.headers.get('Content-Encoding') or '').strip().lower()
             raw_bytes = resp.read(MAX_FETCH_BYTES + 1)
+            if c_enc == 'gzip' or raw_bytes[:2] == b'\x1f\x8b':
+                try:
+                    raw_bytes = gzip.decompress(raw_bytes)
+                except Exception:
+                    pass
+            elif c_enc == 'deflate':
+                try:
+                    raw_bytes = zlib.decompress(raw_bytes, -zlib.MAX_WBITS)
+                except Exception:
+                    try:
+                        raw_bytes = zlib.decompress(raw_bytes)
+                    except Exception:
+                        pass
     except _BlockedUrlError as exc:
         return {
             'ok': False,

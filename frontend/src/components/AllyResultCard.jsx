@@ -172,9 +172,30 @@ export default function AllyResultCard({ data, guardrails: propGuardrails, onSen
   const m = data.metrics || {}
   const findings = data.findings || []
   const strengths = data.strengths || []
-  const score = data.readiness_score ?? 75
+  const score = data.accessibility_score ?? data.readiness_score ?? 75
   const isRemediated = Boolean(data.is_remediated)
-  const remediatedDoc = data.remediated_document || ''
+  const remediatedDoc = useMemo(() => {
+    if (data.remediated_document && String(data.remediated_document).trim()) {
+      return String(data.remediated_document).trim()
+    }
+    if (data.extracted_text && String(data.extracted_text).trim()) {
+      let updated = String(data.extracted_text)
+      findings.forEach(f => {
+        const before = f.non_compliant_code || f.element || f.original_snippet
+        const after = f.compliant_code || f.suggested_fix
+        if (before && after && updated.includes(before)) {
+          updated = updated.replace(before, after)
+        }
+      })
+      return updated
+    }
+    const snippets = findings
+      .map(f => f.compliant_code || f.suggested_fix)
+      .filter(Boolean)
+    return snippets.length > 0
+      ? `<!-- WCAG 2.2 Level A/AA Remediated Code -->\n${snippets.join('\n\n')}`
+      : '<!-- Verified WCAG 2.2 Accessible Source Code -->'
+  }, [data.remediated_document, data.extracted_text, findings])
   const quarantinedFiles = data.quarantined_files || []
 
   // Extract categories for filter dropdown
@@ -210,11 +231,14 @@ export default function AllyResultCard({ data, guardrails: propGuardrails, onSen
 
   function downloadRemediatedFile() {
     if (!remediatedDoc) return
+    const baseName = data.file_name || data.content_scope || 'accessible_document.html'
+    const cleanName = baseName.replace(/[^a-zA-Z0-9._-]/g, '_')
+    const outName = cleanName.includes('.') ? `remediated_${cleanName}` : `remediated_${cleanName}.html`
     const blob = new Blob([remediatedDoc], { type: 'text/html;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'wcag_remediated_accessible_document.html'
+    a.download = outName
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -224,13 +248,11 @@ export default function AllyResultCard({ data, guardrails: propGuardrails, onSen
   function handleChoiceYes() {
     setRemediationChoice('yes')
     setShowRemediated(true)
-    if (onSendPrompt) {
-      onSendPrompt('Yes, please apply all WCAG remediations to my code / document.')
-    }
   }
 
   function handleChoiceNo() {
     setRemediationChoice('no')
+    setShowRemediated(false)
   }
 
   return (
@@ -339,12 +361,26 @@ export default function AllyResultCard({ data, guardrails: propGuardrails, onSen
       {/* 1. AUDIT HEADER */}
       <div className="allyTop">
         <div className="allyTitleWrap">
-          <div className="allyScope">{data.content_scope || 'Web Content & UI'}</div>
+          <div className="allyScope">
+            {data.source_url || /^https?:\/\//i.test(String(data.content_scope || '')) ? (
+              <a
+                href={data.source_url || data.content_scope}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: '#38bdf8', textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+              >
+                <span>{data.source_url || data.content_scope}</span>
+                <span aria-hidden="true">↗</span>
+              </a>
+            ) : (
+              data.content_scope || 'Web Content & UI'
+            )}
+          </div>
           <h3 className="allyTitle">{data.review_title || 'Web Accessibility Coaching Review'}</h3>
         </div>
         <div className="allyBadges">
           <span className={`verdictBadge ${verdictClass}`}>{verdictLabel}</span>
-          <span className="scorePill">Readiness {score}%</span>
+          <span className="scorePill">Accessibility Score: {score}/100</span>
         </div>
       </div>
 
@@ -485,8 +521,37 @@ export default function AllyResultCard({ data, guardrails: propGuardrails, onSen
 
                         {/* 3. Element */}
                         <td className="colElement cellElement mono">
-                          <div className="codeBox nonCompliant">
-                            <pre className="codePre">
+                          <div
+                            className="elementInspectorBox"
+                            style={{
+                              background: 'rgba(7, 140, 255, 0.06)',
+                              border: '1px solid rgba(7, 140, 255, 0.25)',
+                              borderRadius: '8px',
+                              padding: '7px 10px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '6px',
+                            }}
+                          >
+                            <div>
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  fontSize: '10px',
+                                  fontWeight: 700,
+                                  letterSpacing: '0.4px',
+                                  color: '#7dd3fc',
+                                  background: 'rgba(7, 140, 255, 0.16)',
+                                  border: '1px solid rgba(56, 189, 248, 0.35)',
+                                  padding: '2px 7px',
+                                  borderRadius: '4px',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {f.element_tag || (String(nonCompliant || '').match(/^<([a-zA-Z0-9-]+)/) ? `<${String(nonCompliant).match(/^<([a-zA-Z0-9-]+)/)[1].toLowerCase()}>` : 'DOM NODE')}
+                              </span>
+                            </div>
+                            <pre style={{ margin: 0, fontSize: '11.5px', color: '#e2e8f0', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'ui-monospace, "JetBrains Mono", Consolas, monospace', lineHeight: 1.45 }}>
                               <code>{nonCompliant || f.element_or_location || 'Element'}</code>
                             </pre>
                           </div>
@@ -565,9 +630,37 @@ export default function AllyResultCard({ data, guardrails: propGuardrails, onSen
       {(showRemediated || isRemediated) && remediatedDoc && (
         <div className="remediatedDocViewer">
           <div className="viewerHeader">
-            <span>ACCESSIBLE REMEDIATED DOCUMENT PREVIEW</span>
-            <span className="wcagBadgeSuccess">WCAG 2.2 LEVEL AA/AAA COMPLIANT</span>
+            <span>APPLIED WCAG 2.2 CODE CHANGES &amp; REMEDIATED SOURCE</span>
+            <span className="wcagBadgeSuccess">WCAG 2.2 LEVEL A/AA APPLIED</span>
           </div>
+
+          {findings.length > 0 && (
+            <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '10px', borderBottom: '1px solid rgba(7, 140, 255, 0.2)' }}>
+              {findings.map((f, idx) => {
+                const beforeCode = f.non_compliant_code || f.element || f.original_snippet || '<!-- Original markup -->'
+                const afterCode = f.compliant_code || f.suggested_fix || '<!-- Remediated markup -->'
+                return (
+                  <div key={f.id || idx} style={{ background: 'rgba(2, 12, 22, 0.65)', border: '1px solid rgba(7, 140, 255, 0.22)', borderRadius: '8px', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', fontSize: '11.5px', fontWeight: 700, color: '#38bdf8' }}>
+                      <span>{f.id || `ISS-0${idx + 1}`} · {f.wcag_criterion || f.wcag_highlight || 'WCAG 2.2'}</span>
+                      <span style={{ color: '#94a3b8', fontWeight: 600 }}>{f.location || f.element_or_location || 'source'}</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      <div style={{ background: 'rgba(244, 63, 94, 0.08)', border: '1px solid rgba(244, 63, 94, 0.3)', borderRadius: '6px', padding: '6px 8px' }}>
+                        <div style={{ fontSize: '10px', fontWeight: 800, color: '#fda4af', marginBottom: '4px', letterSpacing: '0.5px' }}>ORIGINAL CODE</div>
+                        <pre style={{ margin: 0, fontSize: '11.5px', color: '#fecdd3', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'ui-monospace, Consolas, monospace' }}><code>{beforeCode}</code></pre>
+                      </div>
+                      <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.35)', borderRadius: '6px', padding: '6px 8px' }}>
+                        <div style={{ fontSize: '10px', fontWeight: 800, color: '#6ee7b7', marginBottom: '4px', letterSpacing: '0.5px' }}>REMEDIATED CODE</div>
+                        <pre style={{ margin: 0, fontSize: '11.5px', color: '#a7f3d0', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'ui-monospace, Consolas, monospace' }}><code>{afterCode}</code></pre>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
           <pre className="remediatedCodeBlock">
             <code>{remediatedDoc}</code>
           </pre>
@@ -593,7 +686,7 @@ export default function AllyResultCard({ data, guardrails: propGuardrails, onSen
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
-              <span>Download Accessible Document (.html)</span>
+              <span>Download Remediated Source</span>
             </button>
           </div>
         </div>
