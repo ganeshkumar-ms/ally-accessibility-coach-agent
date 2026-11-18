@@ -357,10 +357,10 @@ export default function AllyResultCard({ data, guardrails: propGuardrails, onSen
         <span className="metricSep">|</span>
         <span className="metricItem">
           <i className="metricDot dotHigh" />
-          <strong style={{ color: (m.high_priority || 0) > 0 ? '#ef4444' : 'inherit' }}>
+          <strong style={{ color: (m.high_priority || 0) > 0 ? '#f59e0b' : 'inherit' }}>
             {m.high_priority ?? 0}
           </strong>{' '}
-          <span style={{ color: (m.high_priority || 0) > 0 ? '#f87171' : 'inherit' }}>
+          <span style={{ color: (m.high_priority || 0) > 0 ? '#fbbf24' : 'inherit' }}>
             High Priority
           </span>
         </span>

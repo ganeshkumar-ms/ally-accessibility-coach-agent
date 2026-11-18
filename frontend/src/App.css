@@ -843,11 +843,14 @@ header {
   z-index: 20;
 }
 
-.headLeft {
+.headLeft,
+.titleCol {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 3px;
+  flex: 1 1 auto;
 }
 
 .titleEditable,
@@ -863,7 +866,7 @@ header {
   font-weight: 700 !important;
   text-align: left !important;
   cursor: pointer !important;
-  max-width: 420px !important;
+  max-width: 480px !important;
   white-space: nowrap !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
@@ -891,15 +894,17 @@ header {
 }
 
 .titleInput {
-  border: 1px solid var(--a1);
-  border-radius: 7px;
-  background: #051a2c;
-  color: #ffffff;
-  padding: 4px 9px;
-  font-size: 15px;
-  font-weight: 700;
-  outline: none;
-  width: 280px;
+  border: 1px solid rgba(7, 140, 255, 0.45) !important;
+  border-radius: 7px !important;
+  background: #051a2c !important;
+  color: #ffffff !important;
+  padding: 4px 10px !important;
+  font-size: 14.5px !important;
+  font-weight: 700 !important;
+  outline: none !important;
+  box-shadow: 0 0 10px rgba(7, 140, 255, 0.25) !important;
+  width: 320px !important;
+  max-width: 100% !important;
 }
 
 .headLeft small {
@@ -926,10 +931,14 @@ header {
   overflow-x: hidden;
   scroll-behavior: smooth;
   overscroll-behavior: contain;
-  padding: 28px clamp(16px, 5vw, 56px);
+  padding: 24px 20px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
+  width: 100% !important;
+  max-width: 1160px !important;
+  margin: 0 auto !important;
+  box-sizing: border-box !important;
 }
 
 .welcomeHint {
@@ -965,10 +974,10 @@ header {
 }
 
 .bubble {
-  max-width: min(86%, 760px);
   padding: 15px 18px;
   font-size: 15px;
   line-height: 1.65;
+  box-sizing: border-box;
 }
 
 .bubble.user {
@@ -984,12 +993,20 @@ header {
 }
 
 .bubble.ai {
-  align-self: flex-start;
-  width: min(100%, 760px);
+  align-self: stretch !important;
+  width: 100% !important;
+  max-width: 100% !important;
   background: rgba(5, 26, 44, 0.85);
   border: 1px solid var(--line);
   border-radius: 18px 18px 18px 5px;
   backdrop-filter: blur(18px);
+  box-sizing: border-box !important;
+}
+
+.bubble.loading {
+  align-self: flex-start !important;
+  max-width: max-content !important;
+  width: auto !important;
 }
 
 .userDocs {
@@ -1097,11 +1114,15 @@ header {
 /* Composer */
 .composerArea {
   flex-shrink: 0;
-  padding: 10px clamp(16px, 5vw, 56px) 18px;
+  padding: 10px 20px 18px;
+  width: 100% !important;
+  max-width: 1160px !important;
+  margin: 0 auto !important;
+  box-sizing: border-box !important;
 }
 
 .composer {
-  max-width: 780px;
+  max-width: 100%;
   margin: auto;
   padding: 8px;
   border: 1px solid var(--line);
@@ -1237,7 +1258,7 @@ header {
 }
 
 .dotEmerald { background: #078cff; box-shadow: 0 0 8px #078cff; }
-.dotHigh    { background: #f87171; }
+.dotHigh    { background: #f59e0b; box-shadow: 0 0 6px rgba(245, 158, 11, 0.4); }
 .dotMed     { background: #facc15; }
 .dotElem    { background: #60a5fa; }
 
@@ -1313,11 +1334,18 @@ header {
   color: #f0f7ff;
 }
 
+.prioCrit {
+  background: rgba(244, 63, 94, 0.22) !important;
+  color: #fda4af !important;
+  border: 1px solid rgba(244, 63, 94, 0.75) !important;
+  box-shadow: 0 0 6px rgba(244, 63, 94, 0.25) !important;
+}
+
 .prioHigh, .sevHigh, .impactHigh {
-  background: rgba(239, 68, 68, 0.22) !important;
-  color: #f87171 !important;
-  border: 1px solid rgba(239, 68, 68, 0.75) !important;
-  box-shadow: 0 0 6px rgba(239, 68, 68, 0.25) !important;
+  background: rgba(245, 158, 11, 0.20) !important;
+  color: #fbbf24 !important;
+  border: 1px solid rgba(245, 158, 11, 0.75) !important;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.25) !important;
 }
 .prioMed  { background: rgba(250, 204, 21, 0.18); color: #facc15; border: 1px solid rgba(250, 204, 21, 0.42); }
 .prioLow  { background: rgba(96, 165, 250, 0.16); color: #bfdbfe; border: 1px solid rgba(96, 165, 250, 0.42); }
@@ -2279,11 +2307,18 @@ html, body {
   color: #38bdf8 !important;
   border: 1px solid rgba(7, 140, 255, 0.45) !important;
 }
+.prioFilterBtn.active.critical {
+  background: rgba(244, 63, 94, 0.25) !important;
+  color: #fda4af !important;
+  border: 1px solid rgba(244, 63, 94, 0.85) !important;
+  box-shadow: 0 0 8px rgba(244, 63, 94, 0.35) !important;
+  outline: none !important;
+}
 .prioFilterBtn.active.high {
-  background: rgba(239, 68, 68, 0.25) !important;
-  color: #f87171 !important;
-  border: 1px solid rgba(239, 68, 68, 0.85) !important;
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.35) !important;
+  background: rgba(245, 158, 11, 0.22) !important;
+  color: #fbbf24 !important;
+  border: 1px solid rgba(245, 158, 11, 0.85) !important;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.35) !important;
   outline: none !important;
 }
 .prioFilterBtn.active.medium {

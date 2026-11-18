@@ -587,7 +587,7 @@ export default function App() {
             <div className="chatStage">
               <main className="chatMain">
                 <div className="chatHead">
-                  <div className="titleCol">
+                  <div className="headLeft titleCol">
                     {editingTitle ? (
                       <input
                         className="titleInput"
