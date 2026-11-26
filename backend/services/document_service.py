@@ -8,28 +8,43 @@ import zlib
 
 
 def _extract_pdf_text(raw_bytes: bytes) -> str:
-    """Pure-stdlib PDF text extractor handling uncompressed & FlateDecode streams."""
+    """Pure-stdlib PDF text extractor supporting /ASCII85Decode + /FlateDecode, /FlateDecode, and raw streams."""
+    import base64
     chunks = []
     stream_pattern = re.compile(rb'stream\r?\n(.*?)endstream', re.S)
     for match in stream_pattern.finditer(raw_bytes):
         data = match.group(1).rstrip(b'\r\n')
+        decoded = data
+        # 1. Decode Adobe ASCII85 (~> terminator) if present
+        stripped = decoded.strip()
+        if b'~>' in stripped:
+            try:
+                decoded = base64.a85decode(stripped, adobe=True)
+            except Exception:
+                try:
+                    decoded = base64.a85decode(stripped.split(b'~>', 1)[0] + b'~>', adobe=True)
+                except Exception:
+                    pass
+        # 2. Decompress FlateDecode (zlib) if compressed
         try:
-            decoded = zlib.decompress(data)
+            decoded = zlib.decompress(decoded)
         except Exception:
-            decoded = data
+            pass
         text_str = decoded.decode('latin-1', errors='ignore')
         for paren in re.findall(r'\(([^()]*)\)', text_str):
             cleaned = paren.replace(r'\(', '(').replace(r'\)', ')').replace(r'\\', '\\').strip()
-            if cleaned and any(c.isalnum() for c in cleaned):
+            if cleaned and any(ch.isalnum() for ch in cleaned):
                 chunks.append(cleaned)
     if not chunks:
-        raw_str = raw_bytes.decode('latin-1', errors='ignore')
-        for m in re.findall(r'\(([^()]{2,200})\)', raw_str):
+        raw = raw_bytes.decode('latin-1', errors='ignore')
+        for m in re.findall(r'\(([^()]{2,200})\)', raw):
             cleaned = m.replace(r'\(', '(').replace(r'\)', ')').strip()
-            if cleaned and sum(c.isalnum() or c.isspace() for c in cleaned) >= len(cleaned) * 0.65:
-                if any(c.isalpha() for c in cleaned):
+            if cleaned and sum(ch.isalnum() or ch.isspace() for ch in cleaned) >= len(cleaned) * 0.65:
+                if any(ch.isalpha() for ch in cleaned):
                     chunks.append(cleaned)
-    return ' '.join(chunks).strip()
+    joined = ' '.join(chunks).strip()
+    return re.sub(r'\s+', ' ', joined)
+
 
 
 def _extract_docx_text(raw_bytes: bytes) -> str:
@@ -89,6 +104,28 @@ def _extract_xlsx_text(raw_bytes: bytes) -> str:
 def extract_document_text(raw_bytes: bytes, file_name: str = 'document.txt') -> str:
     ext = (file_name.rsplit('.', 1)[-1] if '.' in file_name else 'txt').lower()
     if ext == 'pdf':
+        for extractor in ('pdfplumber', 'pypdfium2', 'pypdf'):
+            try:
+                if extractor == 'pdfplumber':
+                    import pdfplumber
+                    with pdfplumber.open(io.BytesIO(raw_bytes)) as pdf:
+                        txt = '\n\n'.join((pg.extract_text() or '') for pg in pdf.pages).strip()
+                        if txt:
+                            return txt[:45000]
+                elif extractor == 'pypdfium2':
+                    import pypdfium2 as pdfium
+                    doc = pdfium.PdfDocument(raw_bytes)
+                    txt = '\n\n'.join((doc[i].get_textpage().get_text_range() or '') for i in range(len(doc))).strip()
+                    if txt:
+                        return txt[:45000]
+                elif extractor == 'pypdf':
+                    import pypdf
+                    reader = pypdf.PdfReader(io.BytesIO(raw_bytes))
+                    txt = '\n\n'.join((p.extract_text() or '') for p in reader.pages).strip()
+                    if txt:
+                        return txt[:45000]
+            except Exception:
+                continue
         return _extract_pdf_text(raw_bytes)[:45000]
     if ext == 'docx':
         return _extract_docx_text(raw_bytes)[:45000]

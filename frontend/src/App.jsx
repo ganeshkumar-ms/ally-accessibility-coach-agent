@@ -255,9 +255,16 @@ export default function App() {
   }
 
   function deleteSession(id) {
-    setSessions(prev => prev.filter(s => s.id !== id))
+    const idx = sessions.findIndex(s => s.id === id)
+    const remaining = sessions.filter(s => s.id !== id)
+    setSessions(remaining)
     if (currentId === id) {
-      openNewChat()
+      if (remaining.length > 0) {
+        const nextSess = remaining[idx >= 0 && idx < remaining.length ? idx : remaining.length - 1]
+        loadSession(nextSess)
+      } else {
+        openNewChat()
+      }
     }
   }
 
@@ -712,10 +719,18 @@ export default function App() {
 
                 <div className="messages" ref={messagesRef} aria-live="polite">
                   {activeMessages.length === 0 && !isLoading && (
-                    <div className="welcomeHint">
-                      <div className="welcomeTitle">Ready to Coach Accessibility</div>
-                      <p>
-                        Paste HTML markup, links (like <code>Click here</code>), form instructions, or attach code files for practical improvements.
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: '#849bb4', maxWidth: '520px', margin: '0 auto', padding: '24px' }}>
+                      <div style={{ display: 'inline-flex', padding: '13px', borderRadius: '14px', background: 'rgba(7, 140, 255, 0.1)', border: '1px solid rgba(7, 140, 255, 0.25)', color: '#38bdf8', marginBottom: '14px' }}>
+                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="5" r="2" />
+                          <path d="M5 9h14" />
+                          <path d="M12 9v5l-3 6" />
+                          <path d="m12 14 3 6" />
+                        </svg>
+                      </div>
+                      <b style={{ display: 'block', color: '#fff', fontSize: '18px' }}>Start a new WCAG 2.2 coaching session with ALLY</b>
+                      <p style={{ fontSize: '14.5px', lineHeight: '1.65', marginTop: '10px', marginBottom: 0 }}>
+                        Share a webpage URL, paste HTML/JSX/CSS markup, or attach UI files below to uncover WCAG 2.2 Level A/AA barriers and generate compliant code fixes.
                       </p>
                     </div>
                   )}
