@@ -182,13 +182,6 @@ export default function App() {
     [sessions, currentId]
   )
   const activeMessages = currentSession ? currentSession.messages : draftMessages
-
-  useEffect(() => {
-    if (typeof window !== 'undefined' && window.self !== window.top) {
-      document.documentElement.classList.add('in-iframe')
-    }
-  }, [])
-
   useEffect(() => {
     persistSessions(sessions)
   }, [sessions])
